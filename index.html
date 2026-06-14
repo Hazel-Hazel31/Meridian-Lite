@@ -870,11 +870,11 @@ function renderDetail(){
   svg.setAttribute("width",WORLD_W);svg.setAttribute("height",WORLD_H);
   const defs=document.createElementNS(SVGNS,"defs");
   const marker=document.createElementNS(SVGNS,"marker");
-  marker.setAttribute("id","ah");marker.setAttribute("markerWidth","12");marker.setAttribute("markerHeight","12");
-  marker.setAttribute("refX","8");marker.setAttribute("refY","4");marker.setAttribute("orient","auto");
+  marker.setAttribute("id","ah");marker.setAttribute("markerWidth","10");marker.setAttribute("markerHeight","10");
+  marker.setAttribute("refX","9");marker.setAttribute("refY","5");marker.setAttribute("orient","auto");
   marker.setAttribute("markerUnits","userSpaceOnUse");
   const mpath=document.createElementNS(SVGNS,"path");
-  mpath.setAttribute("d","M0,0 L9,4 L0,8 Z");mpath.setAttribute("fill","#7a746a");
+  mpath.setAttribute("d","M1,1 L9,5 L1,9 L3,5 Z");mpath.setAttribute("fill","#7a746a");
   marker.appendChild(mpath);defs.appendChild(marker);svg.appendChild(defs);
   world.appendChild(svg);
 
@@ -936,7 +936,7 @@ function eventCardEl(ev,i){
   c.innerHTML=`<div class="ct">${esc(ev.title)}</div><div class="cmeta">
     <span class="chip evtchip">${ev.date===todayISO()?"today":fromISO(ev.date).toLocaleDateString(undefined,{day:'numeric',month:'short'})}</span>
     <span class="chip">${ev.start}–${ev.end}</span></div>`;
-  const down=e=>{if(arrowFrom)return;e.preventDefault();e.stopPropagation();const pt=e.touches?e.touches[0]:e;
+  const down=e=>{if(handleArrowClick(db.openProject,ev.id,e))return;e.preventDefault();e.stopPropagation();const pt=e.touches?e.touches[0]:e;
     const z=vpOf(db.openProject).z;let sx=pt.clientX,sy=pt.clientY,ox=ev.x??40,oy=ev.y??40,moved=false;dragging=true;c.classList.add("dragging");
     const mv=e=>{const pt=e.touches?e.touches[0]:e;const dx=(pt.clientX-sx)/z,dy=(pt.clientY-sy)/z;
       if(Math.abs(dx)+Math.abs(dy)>3)moved=true;c.style.left=Math.max(0,ox+dx)+"px";c.style.top=Math.max(0,oy+dy)+"px";
@@ -984,7 +984,8 @@ function bundleEl(b,p){
         document.removeEventListener("mousemove",mv);document.removeEventListener("mouseup",up);};
       document.addEventListener("mousemove",mv);document.addEventListener("mouseup",up);});
   }
-  const down=e=>{if(e.target.closest("button")||e.target.classList.contains("bresize")||e.target.closest(".bmember")||arrowFrom)return;
+  const down=e=>{if(arrowFrom){handleArrowClick(p.id,b.id,e);return;}
+    if(e.target.closest("button")||e.target.classList.contains("bresize")||e.target.closest(".bmember"))return;
     e.preventDefault();e.stopPropagation();
     const pt=e.touches?e.touches[0]:e;const z=vpOf(p.id).z;let sx=pt.clientX,sy=pt.clientY,ox=b.x??60,oy=b.y??60,moved=false;dragging=true;c.classList.add("dragging");
     const mv=e=>{const pt=e.touches?e.touches[0]:e;const dx=(pt.clientX-sx)/z,dy=(pt.clientY-sy)/z;
@@ -1028,6 +1029,8 @@ function noteEl(n,p){
     document.addEventListener("mousemove",mv);document.addEventListener("mouseup",up);
     document.addEventListener("touchmove",mv,{passive:false});document.addEventListener("touchend",up);};
   grip.addEventListener("mousedown",down);grip.addEventListener("touchstart",down,{passive:false});
+  // arrow mode: clicking the note connects it
+  c.addEventListener("mousedown",e=>{if(arrowFrom){handleArrowClick(p.id,n.id,e);}},true);
   return c;
 }
 
@@ -1096,16 +1099,27 @@ function layoutBands(){const world=document.getElementById("world");if(!world)re
   const bands=bandTops(WORLD_H);
   world.querySelectorAll(".band").forEach(el=>{const b=bands[el.dataset.k];
     el.style.top=b.top+"px";el.style.height=b.h+"px";});}
+function arrowNodeFor(id){
+  return document.getElementById("card_"+id)||document.getElementById("note_"+id)||document.getElementById("bundle_"+id);
+}
+// In arrow mode, clicking any canvas item picks source then target. Returns true if handled.
+function handleArrowClick(pid,id,e){
+  if(!arrowFrom)return false;
+  e.preventDefault();e.stopPropagation();
+  if(arrowFrom==="_arm"){arrowFrom=id;render();}
+  else if(arrowFrom===id){arrowFrom=null;render();}
+  else{newArrow(pid,arrowFrom,id);arrowFrom=null;render();}
+  return true;
+}
 function drawArrows(pid){const svg=document.getElementById("arrowlayer");if(!svg)return;
   svg.querySelectorAll("path.arrow").forEach(n=>n.remove());
   arrowsOf(pid).forEach(a=>{
-    const ce=document.getElementById("card_"+a.from),te=document.getElementById("card_"+a.to);
+    const ce=arrowNodeFor(a.from),te=arrowNodeFor(a.to);
     if(!ce||!te)return;
-    // world coords straight from element offsets (svg lives in the same transformed world)
     const c1={x:ce.offsetLeft+ce.offsetWidth/2,y:ce.offsetTop+ce.offsetHeight/2};
     const c2={x:te.offsetLeft+te.offsetWidth/2,y:te.offsetTop+te.offsetHeight/2};
     const start=edgePoint(c1,c2,ce.offsetWidth/2,ce.offsetHeight/2);
-    const end=edgePoint(c2,c1,te.offsetWidth/2+7,te.offsetHeight/2+7);
+    const end=edgePoint(c2,c1,te.offsetWidth/2+3,te.offsetHeight/2+3);
     const mx=(start.x+end.x)/2;
     const path=document.createElementNS("http://www.w3.org/2000/svg","path");
     path.setAttribute("d",`M ${start.x} ${start.y} C ${mx} ${start.y}, ${mx} ${end.y}, ${end.x} ${end.y}`);
@@ -1599,7 +1613,7 @@ function buildManifest(){try{
 function registerSW(){try{
   if(!("serviceWorker"in navigator))return;
   if(location.protocol!=="https:"&&location.hostname!=="localhost")return;
-  const sw=`const C="chronicle-v9";
+  const sw=`const C="chronicle-v10";
     self.addEventListener("install",e=>self.skipWaiting());
     self.addEventListener("activate",e=>self.clients.claim());
     self.addEventListener("fetch",e=>{
