@@ -595,17 +595,17 @@ function delNote(n){n.deleted=true;n.updated_at=now();persist();pushSoon();}
 function touchNote(n){n.updated_at=now();persist();render();pushSoon();}
 
 /* Supabase Storage upload → returns public URL */
-const STORAGE_BUCKET="chronicle";
+const STORAGE_BUCKET="Chronicle Lite";
 async function uploadFile(file){
   const safe=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
   const path=Date.now()+"_"+Math.random().toString(36).slice(2,7)+"_"+safe;
-  const res=await fetch(SUPABASE_URL+"/storage/v1/object/"+STORAGE_BUCKET+"/"+encodeURIComponent(path),{
+  const res=await fetch(SUPABASE_URL+"/storage/v1/object/"+encodeURIComponent(STORAGE_BUCKET)+"/"+encodeURIComponent(path),{
     method:"POST",
     headers:{"apikey":SUPABASE_ANON,"Authorization":"Bearer "+SUPABASE_ANON,"Content-Type":file.type||"application/octet-stream"},
     body:file
   });
   if(!res.ok)throw new Error("upload "+res.status+" "+(await res.text()).slice(0,120));
-  return SUPABASE_URL+"/storage/v1/object/public/"+STORAGE_BUCKET+"/"+encodeURIComponent(path);
+  return SUPABASE_URL+"/storage/v1/object/public/"+encodeURIComponent(STORAGE_BUCKET)+"/"+encodeURIComponent(path);
 }
 
 function touchProject(p){p.updated_at=now();persist();render();pushSoon();}
@@ -1033,23 +1033,34 @@ function noteEl(n,p){
 
 const WORLD_W=3200, WORLD_H=2400;
 function vpOf(pid){if(!db.viewports[pid])db.viewports[pid]={z:1,px:0,py:0};return db.viewports[pid];}
+function minZoomFor(pid){const cv=document.getElementById("canvas");if(!cv)return 0.45;
+  // world must always cover the viewport in both axes so bands never stop short
+  const need=Math.max(cv.clientWidth/WORLD_W,cv.clientHeight/WORLD_H);
+  return Math.max(0.45,need);}
+function clampPan(pid){const cv=document.getElementById("canvas");if(!cv)return;const v=vpOf(pid);
+  const sw=WORLD_W*v.z,sh=WORLD_H*v.z;
+  // keep world covering the viewport: px in [cw-sw, 0], py in [ch-sh, 0]
+  const minX=Math.min(0,cv.clientWidth-sw),minY=Math.min(0,cv.clientHeight-sh);
+  v.px=Math.max(minX,Math.min(0,v.px));v.py=Math.max(minY,Math.min(0,v.py));}
 function applyViewport(pid){const world=document.getElementById("world");if(!world)return;const v=vpOf(pid);
+  const mz=minZoomFor(pid);if(v.z<mz)v.z=mz;
+  clampPan(pid);
   world.style.transform=`translate(${v.px}px,${v.py}px) scale(${v.z})`;
-  const cv=document.getElementById("canvas");if(cv)cv.classList.toggle("zoomed-out",v.z<0.6);}
-function setZoom(pid,z){const v=vpOf(pid);v.z=Math.max(0.45,Math.min(1.6,z));persist();
+  const cv=document.getElementById("canvas");if(cv)cv.classList.toggle("zoomed-out",v.z<0.7);}
+function setZoom(pid,z){const v=vpOf(pid);v.z=Math.max(minZoomFor(pid),Math.min(1.6,z));persist();
   const inp=document.querySelector(".zoomctl input");if(inp)inp.value=Math.round(v.z*100);
   applyViewport(pid);drawArrows(pid);}
-function fitView(pid){const v=vpOf(pid);v.z=1;v.px=0;v.py=0;persist();applyViewport(pid);drawArrows(pid);
-  const inp=document.querySelector(".zoomctl input");if(inp)inp.value=100;}
+function fitView(pid){const v=vpOf(pid);v.z=Math.max(minZoomFor(pid),1);v.px=0;v.py=0;persist();applyViewport(pid);drawArrows(pid);
+  const inp=document.querySelector(".zoomctl input");if(inp)inp.value=Math.round(v.z*100);}
 function enableCanvasPanZoom(pid){
   const canvas=document.getElementById("canvas");if(!canvas||canvas._wired)return;canvas._wired=true;
   canvas.addEventListener("wheel",e=>{e.preventDefault();const v=vpOf(pid);
     if(e.ctrlKey||e.metaKey){setZoom(pid,v.z-e.deltaY*0.002);}
-    else{v.px-=e.deltaX;v.py-=e.deltaY;persist();applyViewport(pid);}},{passive:false});
+    else{v.px-=e.deltaX;v.py-=e.deltaY;clampPan(pid);persist();applyViewport(pid);}},{passive:false});
   canvas.addEventListener("mousedown",e=>{
     if(e.target!==canvas&&e.target.id!=="world"&&!e.target.classList.contains("band"))return;
     if(arrowFrom)return;const v=vpOf(pid);const sx=e.clientX,sy=e.clientY,opx=v.px,opy=v.py;
-    const mv=ev=>{v.px=opx+(ev.clientX-sx);v.py=opy+(ev.clientY-sy);applyViewport(pid);};
+    const mv=ev=>{v.px=opx+(ev.clientX-sx);v.py=opy+(ev.clientY-sy);clampPan(pid);applyViewport(pid);};
     const up=()=>{persist();drawArrows(pid);document.removeEventListener("mousemove",mv);document.removeEventListener("mouseup",up);};
     document.addEventListener("mousemove",mv);document.addEventListener("mouseup",up);});
   let pinchD=0;
@@ -1588,7 +1599,7 @@ function buildManifest(){try{
 function registerSW(){try{
   if(!("serviceWorker"in navigator))return;
   if(location.protocol!=="https:"&&location.hostname!=="localhost")return;
-  const sw=`const C="chronicle-v8";
+  const sw=`const C="chronicle-v9";
     self.addEventListener("install",e=>self.skipWaiting());
     self.addEventListener("activate",e=>self.clients.claim());
     self.addEventListener("fetch",e=>{
