@@ -193,7 +193,7 @@
   .month-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;}
   .month-dayname{font-family:var(--mono);font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--graphite);
     text-align:center;padding:4px 0;}
-  .month-cell{min-height:96px;border:1px solid var(--hair);border-radius:8px;background:var(--card);padding:5px;
+  .month-cell{min-height:120px;border:1px solid var(--hair);border-radius:8px;background:var(--card);padding:5px;
     display:flex;flex-direction:column;gap:3px;overflow:hidden;}
   .month-cell.empty{background:transparent;border:none;}
   .month-cell.is-today{border-color:var(--live);box-shadow:0 0 0 2px var(--live-soft);}
@@ -269,7 +269,7 @@
   .drawer .foot .del{color:var(--danger);border-color:var(--danger);}
 
   /* ---- day / week (unchanged structure) ---- */
-  .timeline{max-width:760px;margin:0 auto;}
+  .timeline{max-width:1100px;margin:0 auto;}
   .day-head,.week-head{display:flex;align-items:baseline;gap:14px;margin-bottom:18px;}
   .day-head h2,.week-head h2{font-family:var(--mono);font-size:22px;letter-spacing:-0.5px;margin:0;}
   .nav{display:flex;gap:6px;}
@@ -424,6 +424,7 @@
   <div class="spacer"></div>
   <div class="sync" id="syncPill"><span class="led"></span><span id="syncText">starting</span></div>
   <button class="iconbtn" id="themeBtn" title="Toggle dark mode">◐</button>
+  <button class="iconbtn" id="resetBtn" title="Wipe all data (local + server)">⟲</button>
   <button class="iconbtn" id="installBtn">Install</button>
 </header>
 <div class="banner" id="cfgBanner"></div>
@@ -1299,7 +1300,7 @@ function openEvent(id){editingEventId=id;editingTaskId=null;const e=eventById(id
 }
 function tasksForDate(iso){const out=[];liveProjects().forEach(p=>tasksOf(p.id).forEach(t=>{if(t.date===iso&&t.status!=="pending")out.push({t,p});}));
   return out.sort((a,b)=>(a.t.due_time||"99").localeCompare(b.t.due_time||"99"));}
-const HOUR_PX=44, DAY_START=7, DAY_END=22; // 7am–10pm grid
+const HOUR_PX=60, DAY_START=7, DAY_END=22; // 7am–10pm grid
 function modeToggle(){
   const wrap=document.createElement("div");wrap.className="modetoggle";
   ["calendar","list"].forEach(m=>{const b=document.createElement("button");b.textContent=m;
@@ -1587,7 +1588,7 @@ function buildManifest(){try{
 function registerSW(){try{
   if(!("serviceWorker"in navigator))return;
   if(location.protocol!=="https:"&&location.hostname!=="localhost")return;
-  const sw=`const C="chronicle-v7";
+  const sw=`const C="chronicle-v8";
     self.addEventListener("install",e=>self.skipWaiting());
     self.addEventListener("activate",e=>self.clients.claim());
     self.addEventListener("fetch",e=>{
@@ -1614,6 +1615,19 @@ function applyTheme(){const th=localStorage.getItem("chronicle.theme")||"light";
 document.getElementById("themeBtn").addEventListener("click",()=>{
   const cur=document.documentElement.getAttribute("data-theme")==="dark"?"light":"dark";
   localStorage.setItem("chronicle.theme",cur);document.documentElement.setAttribute("data-theme",cur);});
+document.getElementById("resetBtn").addEventListener("click",async()=>{
+  if(!confirm("Wipe ALL data on this device AND the server, and start fresh? This cannot be undone."))return;
+  if(!confirm("Really wipe everything? Last chance."))return;
+  // hard-delete every row on the server, then clear local
+  try{
+    for(const tbl of ["tasks","projects","categories","arrows","events","bundles","notes"]){
+      await fetch(REST+"/"+tbl+"?id=neq.__none__",{method:"DELETE",headers:HEADERS});
+    }
+  }catch(e){}
+  try{localStorage.removeItem(LKEY);localStorage.removeItem("chronicle.seeded");}catch(e){}
+  db=emptyLocal();db.lastPull=0;persist();
+  location.reload();
+});
 function boot(){
   applyTheme();
   try{render();}catch(e){const b=document.getElementById("cfgBanner");b.style.display="block";
