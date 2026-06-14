@@ -271,6 +271,42 @@
     padding:2px 4px;font-size:10.5px;cursor:pointer;overflow:hidden;min-height:20px;line-height:1.2;}
   .wc-event b{font-family:var(--mono);font-size:9.5px;display:block;}
   .wc-event.done{text-decoration:line-through;opacity:.65;}
+
+  .catbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:14px;}
+  .catbar-label{font-family:var(--mono);font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--graphite);}
+  .catchip{font-family:var(--mono);font-size:11px;border:1px solid var(--hair);background:var(--card);color:var(--graphite);
+    border-radius:999px;padding:4px 11px;cursor:pointer;}
+  .catchip.on{font-weight:600;}
+  .catsort,.catclear{font-family:var(--mono);font-size:11px;border:1px solid var(--hair);background:var(--card);
+    color:var(--graphite);border-radius:7px;padding:4px 11px;cursor:pointer;}
+  .catsort.on{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+  .catclear{color:var(--danger);border-color:var(--danger);}
+
+  .cal-eventblock{position:absolute;left:70px;right:10px;background:repeating-linear-gradient(135deg,rgba(122,108,174,0.13) 0 8px,rgba(122,108,174,0.06) 8px 16px);
+    border:1px solid #7a6cae;border-radius:6px;padding:3px 8px;font-size:12px;cursor:grab;overflow:hidden;color:#3c3489;z-index:2;}
+  .cal-eventblock b{font-family:var(--mono);font-size:11px;}
+  .cal-eventblock.dragging{cursor:grabbing;opacity:.85;z-index:8;}
+  .wc-eventblock{position:absolute;left:2px;right:2px;background:repeating-linear-gradient(135deg,rgba(122,108,174,0.15) 0 6px,rgba(122,108,174,0.06) 6px 12px);
+    border:1px solid #7a6cae;border-radius:4px;padding:2px 4px;font-size:10px;cursor:grab;overflow:hidden;color:#3c3489;z-index:2;line-height:1.2;}
+  .wc-eventblock b{font-family:var(--mono);font-size:9px;display:block;}
+  .wc-eventblock.dragging{cursor:grabbing;opacity:.85;z-index:8;}
+  .event-row .proj-chip.evt,.wtask.wevt{background:#7a6cae !important;color:#fff;}
+  .wtask.wevt{border-left-color:#7a6cae;}
+  .ccard.eventcard{border-left-color:#7a6cae;background:repeating-linear-gradient(135deg,rgba(122,108,174,0.08) 0 10px,transparent 10px 20px),var(--paper);}
+  .ccard .chip.evtchip{background:rgba(122,108,174,0.18);color:#3c3489;}
+
+  .totem.droptarget{border-color:var(--live);box-shadow:0 0 0 3px var(--live-soft);}
+  .unassigned-area{margin-top:24px;border:1px dashed var(--hair);border-radius:14px;padding:14px 16px;background:var(--card);}
+  .ua-head{font-family:var(--mono);font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--graphite);margin-bottom:10px;}
+  .ua-hint{text-transform:none;letter-spacing:0;color:var(--hair);margin-left:8px;}
+  .ua-list{display:flex;flex-wrap:wrap;gap:8px;}
+  .ua-card{display:flex;align-items:center;gap:8px;border:1px solid var(--hair);border-left:4px solid var(--upcoming);
+    border-radius:0 9px 9px 0;padding:7px 10px;background:var(--paper);cursor:grab;}
+  .ua-card.dragging{opacity:.5;}
+  .ua-card .ua-text{font-size:13px;font-weight:600;cursor:pointer;}
+  .ua-card .assign{font-family:var(--mono);font-size:11px;border:1px solid var(--hair);border-radius:6px;background:var(--card);color:var(--graphite);}
+  .ua-card .ua-del{border:none;background:none;color:var(--hair);font-size:15px;cursor:pointer;}
+  .ua-card .ua-del:hover{color:var(--danger);}
   .hint{font-family:var(--mono);font-size:11px;color:var(--graphite);margin-top:14px;text-align:center;}
   .banner{max-width:760px;margin:0 auto 16px;background:var(--live-soft);border:1px solid var(--live);border-radius:10px;
     padding:10px 14px;font-size:13px;color:var(--ink);display:none;}
@@ -320,7 +356,7 @@ function fromISO(s){const[y,m,d]=s.split("-").map(Number);return new Date(y,m-1,
 function addDays(iso,n){const d=fromISO(iso);d.setDate(d.getDate()+n);return toISO(d);}
 function fmtLong(iso){return fromISO(iso).toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long"});}
 
-function emptyLocal(){return{projects:{},tasks:{},categories:{},arrows:{},view:"projects",cursorDate:todayISO(),openProject:null,lastPull:0};}
+function emptyLocal(){return{projects:{},tasks:{},categories:{},arrows:{},events:{},view:"projects",cursorDate:todayISO(),openProject:null,calMode:"calendar",catFilter:[],catSort:false,lastPull:0};}
 let db=loadLocal();
 function loadLocal(){
   try{
@@ -328,9 +364,10 @@ function loadLocal(){
     if(!raw) return migrateOrSeed();
     const s=JSON.parse(raw);
     s.projects=s.projects||{};s.tasks=s.tasks||{};s.categories=s.categories||{};s.arrows=s.arrows||{};
+    s.events=s.events||{};
     s.view=s.view||"projects";
     s.cursorDate=s.cursorDate||todayISO();s.lastPull=s.lastPull||0;s.openProject=s.openProject||null;
-    s.calMode=s.calMode||"calendar";
+    s.calMode=s.calMode||"calendar";s.catFilter=s.catFilter||[];s.catSort=s.catSort||false;
     return s;
   }catch(e){return migrateOrSeed();}
 }
@@ -338,7 +375,8 @@ function migrateOrSeed(){
   // carry over older data if present
   for(const k of ["totem.sync.v2","totem.sync.v1"]){
     try{const old=localStorage.getItem(k);
-      if(old){const s=JSON.parse(old);s.openProject=null;s.categories=s.categories||{};s.arrows=s.arrows||{};return s;}
+      if(old){const s=JSON.parse(old);s.openProject=null;s.categories=s.categories||{};s.arrows=s.arrows||{};
+        s.events=s.events||{};s.calMode=s.calMode||"calendar";s.catFilter=[];s.catSort=false;return s;}
     }catch(e){}
   }
   return seed();
@@ -380,6 +418,18 @@ function newArrow(pid,from,to){
   const id=uid();db.arrows[id]={id,project_id:pid,from,to,updated_at:now(),deleted:false};
   persist();pushSoon();}
 function delArrow(a){a.deleted=true;a.updated_at=now();persist();pushSoon();}
+
+/* events: meetings/seminars with start+end time, optional project, no status */
+const liveEvents=()=>Object.values(db.events).filter(e=>!e.deleted);
+const eventsForDate=iso=>liveEvents().filter(e=>e.date===iso);
+const eventsOfProject=pid=>liveEvents().filter(e=>e.project_id===pid);
+function newEvent(date,start,end,pid){const id=uid();
+  db.events[id]={id,title:"New event",date:date||todayISO(),start:start||"09:00",end:end||"10:00",
+    project_id:pid||null,location:"",notes:"",x:40,y:40,updated_at:now(),deleted:false};
+  persist();pushSoon();return id;}
+function delEvent(e){e.deleted=true;e.updated_at=now();persist();pushSoon();}
+function touchEvent(e){e.updated_at=now();persist();render();pushSoon();}
+function eventById(id){return db.events[id];}
 
 function touchProject(p){p.updated_at=now();persist();render();pushSoon();}
 function touchTask(t){t.updated_at=now();persist();render();pushSoon();}
@@ -424,11 +474,15 @@ async function syncNow(){
       updated_at:c.updated_at??now(),deleted:!!c.deleted}));
     const aRows=Object.values(db.arrows).map(a=>({id:a.id,project_id:a.project_id??null,
       from_id:a.from,to_id:a.to,updated_at:a.updated_at??now(),deleted:!!a.deleted}));
+    const eRows=Object.values(db.events).map(e=>({id:e.id,title:e.title??"",date:e.date??null,
+      start:e.start??"09:00",end:e.end??"10:00",project_id:e.project_id??null,location:e.location??"",
+      notes:e.notes??"",x:Math.round(e.x??40),y:Math.round(e.y??40),updated_at:e.updated_at??now(),deleted:!!e.deleted}));
     await upsert("categories",cRows);
     await upsert("arrows",aRows);
+    await upsert("events",eRows);
     const since=db.lastPull||0;
-    const[sp,st,sc,sa]=await Promise.all([pull("projects",since),pull("tasks",since),
-      pull("categories",since),pull("arrows",since)]);
+    const[sp,st,sc,sa,se]=await Promise.all([pull("projects",since),pull("tasks",since),
+      pull("categories",since),pull("arrows",since),pull("events",since)]);
     let changed=false,maxTs=since;
     const merge=(store,row)=>{maxTs=Math.max(maxTs,row.updated_at||0);const cur=store[row.id];
       if(!cur||(row.updated_at||0)>(cur.updated_at||0)){store[row.id]=row;changed=true;}};
@@ -436,6 +490,7 @@ async function syncNow(){
     sc.forEach(r=>merge(db.categories,r));
     sa.forEach(r=>{const norm={id:r.id,project_id:r.project_id,from:r.from_id,to:r.to_id,
       updated_at:r.updated_at,deleted:r.deleted};merge(db.arrows,norm);});
+    se.forEach(r=>merge(db.events,r));
     db.lastPull=maxTs;persist();
     if(changed&&!dragging)render();
     setSync("online","synced");
@@ -476,32 +531,13 @@ function renderProjects(){
   outer.appendChild(cap);
 
   const board=document.createElement("div");board.className="board";
-  // Unassigned column first if any loose tasks
-  const loose=unassignedTasks();
-  if(loose.length){
-    const ue=document.createElement("div");ue.className="totem unassigned";
-    ue.innerHTML=`<div class="totem-head"><span class="swatch" style="background:var(--graphite)"></span>
-      <h3 style="cursor:default">Unassigned</h3>
-      <div class="totem-meta"><span>${loose.length} to sort</span></div></div><div class="stack"></div>`;
-    const stack=ue.querySelector(".stack");
-    loose.forEach(t=>{const row=document.createElement("div");row.className="task upcoming";
-      row.innerHTML=`<span class="tick"></span><span class="label"></span><select class="assign"></select>`;
-      row.querySelector(".label").textContent=t.text;
-      const sel=row.querySelector(".assign");
-      sel.innerHTML=`<option value="">→ project…</option>`+liveProjects().map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join("");
-      sel.addEventListener("change",()=>{if(sel.value){t.project_id=sel.value;t.status="pending";touchTask(t);}});
-      row.querySelector(".tick").addEventListener("click",e=>{e.stopPropagation();delTask(t);});
-      row.querySelector(".label").addEventListener("click",()=>openTask(t.id));
-      stack.appendChild(row);});
-    board.appendChild(ue);
-  }
   liveProjects().forEach(p=>{
     const tasks=tasksOf(p.id);const done=tasks.filter(t=>t.status==="done");
     const live=tasks.filter(t=>t.status==="live");const up=tasks.filter(t=>t.status==="upcoming");
     const pend=tasks.filter(t=>t.status==="pending");
     const counted=tasks.filter(t=>t.status!=="pending");
     const pct=counted.length?Math.round(done.length/counted.length*100):0;
-    const el=document.createElement("div");el.className="totem";
+    const el=document.createElement("div");el.className="totem";el.dataset.pid=p.id;
     el.innerHTML=`<div class="totem-head"><span class="swatch" style="background:${p.color}"></span>
       <button class="open-proj" title="Open canvas">⤢</button>
       <button class="delproj" title="Delete">&times;</button>
@@ -513,9 +549,13 @@ function renderProjects(){
     el.querySelector("h3").addEventListener("click",()=>openProject(p.id));
     el.querySelector(".open-proj").addEventListener("click",()=>openProject(p.id));
     el.querySelector(".delproj").addEventListener("click",()=>{if(confirm(`Delete "${p.name}" and its tasks?`))delProject(p);});
+    // drop target: drag a loose task onto a project to assign it
+    el.addEventListener("dragover",e=>{e.preventDefault();el.classList.add("droptarget");});
+    el.addEventListener("dragleave",()=>el.classList.remove("droptarget"));
+    el.addEventListener("drop",e=>{e.preventDefault();el.classList.remove("droptarget");
+      const tid=e.dataTransfer.getData("text/task");if(tid&&db.tasks[tid]){db.tasks[tid].project_id=p.id;db.tasks[tid].status="pending";touchTask(db.tasks[tid]);}});
     const stack=el.querySelector(".stack");
     zone(stack,"Done",done,"done",true);zone(stack,"Now",live,"live",done.length===0);zone(stack,"Upcoming",up,"upcoming",false);
-    // quick-add directly on the dashboard card
     const qa=document.createElement("input");qa.className="quickadd";qa.placeholder="+ quick add task";
     qa.addEventListener("keydown",e=>{if(e.key==="Enter"&&qa.value.trim()){
       const id=newTask(p.id,"upcoming",null);db.tasks[id].text=qa.value.trim();touchTask(db.tasks[id]);qa.value="";}});
@@ -524,6 +564,26 @@ function renderProjects(){
   const add=document.createElement("div");add.className="totem add";add.textContent="+ new project";
   add.addEventListener("click",()=>{const id=newProject();openProject(id);});board.appendChild(add);
   outer.appendChild(board);
+
+  // Unassigned at the BOTTOM of the page
+  const loose=unassignedTasks();
+  if(loose.length){
+    const ue=document.createElement("div");ue.className="unassigned-area";
+    ue.innerHTML=`<div class="ua-head">UNASSIGNED · ${loose.length} to sort <span class="ua-hint">drag onto a project above, or use the dropdown</span></div>`;
+    const ul=document.createElement("div");ul.className="ua-list";
+    loose.forEach(t=>{const row=document.createElement("div");row.className="ua-card";row.draggable=true;
+      row.innerHTML=`<span class="ua-text"></span><select class="assign"></select><button class="ua-del" title="delete">&times;</button>`;
+      row.querySelector(".ua-text").textContent=t.text;
+      row.querySelector(".ua-text").addEventListener("click",()=>openTask(t.id));
+      const sel=row.querySelector(".assign");
+      sel.innerHTML=`<option value="">→ project…</option>`+liveProjects().map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join("");
+      sel.addEventListener("change",()=>{if(sel.value){t.project_id=sel.value;t.status="pending";touchTask(t);}});
+      row.querySelector(".ua-del").addEventListener("click",()=>delTask(t));
+      row.addEventListener("dragstart",e=>{e.dataTransfer.setData("text/task",t.id);row.classList.add("dragging");});
+      row.addEventListener("dragend",()=>row.classList.remove("dragging"));
+      ul.appendChild(row);});
+    ue.appendChild(ul);outer.appendChild(ue);
+  }
   app.replaceChildren(outer);
 }
 function zone(stack,label,tasks,status,first){
@@ -607,6 +667,26 @@ function renderDetail(){
   if(!placed.length){const e=document.createElement("div");e.className="canvas-empty";
     e.innerHTML=`<div>No cards on the board yet</div><div>Use “+ add card”, or drag one in from the inbox →</div>`;canvas.appendChild(e);}
   placed.forEach(t=>canvas.appendChild(cardEl(t,p)));
+  // events belonging to this project also show as cards
+  eventsOfProject(p.id).forEach((ev,i)=>{const c=document.createElement("div");c.className="ccard eventcard";
+    c.style.left=(ev.x??(40+i*30))+"px";c.style.top=(ev.y??(40+i*30))+"px";
+    c.innerHTML=`<div class="ct">${esc(ev.title)}</div><div class="cmeta">
+      <span class="chip evtchip">${ev.date===todayISO()?"today":fromISO(ev.date).toLocaleDateString(undefined,{day:'numeric',month:'short'})}</span>
+      <span class="chip">${ev.start}–${ev.end}</span></div>`;
+    let sx,sy,ox,oy,moved;
+    const down=e=>{e.preventDefault();const pt=e.touches?e.touches[0]:e;sx=pt.clientX;sy=pt.clientY;
+      ox=ev.x??40;oy=ev.y??40;moved=false;dragging=true;c.classList.add("dragging");
+      document.addEventListener("mousemove",mv);document.addEventListener("mouseup",up);
+      document.addEventListener("touchmove",mv,{passive:false});document.addEventListener("touchend",up);};
+    const mv=e=>{const pt=e.touches?e.touches[0]:e;const dx=pt.clientX-sx,dy=pt.clientY-sy;
+      if(Math.abs(dx)+Math.abs(dy)>3)moved=true;c.style.left=Math.max(0,ox+dx)+"px";c.style.top=Math.max(0,oy+dy)+"px";
+      ev._nx=Math.max(0,ox+dx);ev._ny=Math.max(0,oy+dy);if(e.cancelable)e.preventDefault();};
+    const up=()=>{dragging=false;c.classList.remove("dragging");
+      document.removeEventListener("mousemove",mv);document.removeEventListener("mouseup",up);
+      document.removeEventListener("touchmove",mv);document.removeEventListener("touchend",up);
+      if(moved){ev.x=Math.round(ev._nx);ev.y=Math.round(ev._ny);delete ev._nx;delete ev._ny;touchEvent(ev);}else{openEvent(ev.id);}};
+    c.addEventListener("mousedown",down);c.addEventListener("touchstart",down,{passive:false});
+    canvas.appendChild(c);});
   layoutRow.appendChild(canvas);
   // inbox panel for pending tasks
   const inbox=document.createElement("div");inbox.className="inbox";
@@ -758,7 +838,7 @@ function openTask(id){editingTaskId=id;const t=taskById(id);if(!t)return;
   document.querySelector(".drawer header b").textContent="Task";
 }
 function touchTaskQuiet(t){t.updated_at=now();persist();pushSoon();}
-function closeDrawer(){drawer.classList.remove("open");drawerBack.style.display="none";editingTaskId=null;render();}
+function closeDrawer(){drawer.classList.remove("open");drawerBack.style.display="none";editingTaskId=null;editingEventId=null;render();}
 document.getElementById("drawerClose").addEventListener("click",closeDrawer);
 drawerBack.addEventListener("click",closeDrawer);
 
@@ -800,7 +880,29 @@ function openCategories(){
   drawer.classList.add("open");drawerBack.style.display="block";
 }
 
-/* day + week */
+/* event editor (reuses drawer) */
+let editingEventId=null;
+function openEvent(id){editingEventId=id;editingTaskId=null;const e=eventById(id);if(!e)return;
+  drawerBody.innerHTML=`
+    <div class="field"><label>Event</label><textarea id="e_title" style="min-height:48px">${esc(e.title)}</textarea></div>
+    <div class="field"><label>Date</label><input type="date" id="e_date" value="${e.date||""}"></div>
+    <div class="field row2">
+      <div><label>Start</label><input type="time" id="e_start" value="${e.start||"09:00"}"></div>
+      <div><label>End</label><input type="time" id="e_end" value="${e.end||"10:00"}"></div></div>
+    <div class="field"><label>Project (optional)</label><select id="e_proj"><option value="">— none —</option>${liveProjects().map(p=>`<option ${p.id===(e.project_id||"")?"selected":""} value="${p.id}">${esc(p.name)}</option>`).join("")}</select></div>
+    <div class="field"><label>Location</label><input type="text" id="e_loc" placeholder="e.g. seminar room" value="${esc(e.location||"")}"></div>
+    <div class="field"><label>Notes</label><textarea id="e_notes">${esc(e.notes||"")}</textarea></div>
+    <div class="foot" style="padding:0;border:none;margin-top:6px">
+      <button class="del" id="e_del">Delete event</button>
+      <button id="e_done" style="background:var(--ink);color:var(--paper);border-color:var(--ink)">Done</button></div>`;
+  const bind=(sel,prop,ev)=>{const el=drawerBody.querySelector(sel);el.addEventListener(ev||"input",()=>{e[prop]=el.value;e.updated_at=now();persist();pushSoon();});};
+  bind("#e_title","title");bind("#e_date","date","change");bind("#e_start","start","change");
+  bind("#e_end","end","change");bind("#e_proj","project_id","change");bind("#e_loc","location");bind("#e_notes","notes");
+  drawerBody.querySelector("#e_del").addEventListener("click",()=>{closeDrawer();delEvent(e);});
+  drawerBody.querySelector("#e_done").addEventListener("click",closeDrawer);
+  document.querySelector(".drawer header b").textContent="Event";
+  drawer.classList.add("open");drawerBack.style.display="block";
+}
 function tasksForDate(iso){const out=[];liveProjects().forEach(p=>tasksOf(p.id).forEach(t=>{if(t.date===iso&&t.status!=="pending")out.push({t,p});}));
   return out.sort((a,b)=>(a.t.due_time||"99").localeCompare(b.t.due_time||"99"));}
 const HOUR_PX=44, DAY_START=7, DAY_END=22; // 7am–10pm grid
@@ -812,6 +914,54 @@ function modeToggle(){
   return wrap;
 }
 function minutesOf(t){if(!t.due_time)return null;const[h,m]=t.due_time.split(":").map(Number);return h*60+(m||0);}
+function minsToTime(mins){mins=Math.max(0,Math.min(24*60-1,Math.round(mins/15)*15));
+  return String(Math.floor(mins/60)).padStart(2,"0")+":"+String(mins%60).padStart(2,"0");}
+// category filter/sort applied to task rows [{t,p}]
+function applyCatControls(rows){
+  let out=rows;
+  if(db.catFilter&&db.catFilter.length)out=out.filter(({t})=>db.catFilter.includes(t.category||""));
+  if(db.catSort)out=out.slice().sort((a,b)=>{
+    const an=(a.t.category&&catById(a.t.category))?catById(a.t.category).name:"~";
+    const bn=(b.t.category&&catById(b.t.category))?catById(b.t.category).name:"~";
+    return an.localeCompare(bn)||(a.t.due_time||"99").localeCompare(b.t.due_time||"99");});
+  return out;
+}
+function catControlBar(){
+  const bar=document.createElement("div");bar.className="catbar";
+  const cats=liveCategories();
+  if(!cats.length)return bar;
+  const lab=document.createElement("span");lab.className="catbar-label";lab.textContent="categories:";
+  bar.appendChild(lab);
+  const chip=(id,name,color)=>{const b=document.createElement("button");b.className="catchip"+((db.catFilter||[]).includes(id)?" on":"");
+    b.textContent=name;if(color){b.style.borderColor=color;if((db.catFilter||[]).includes(id)){b.style.background=color;b.style.color="#fff";}}
+    b.addEventListener("click",()=>{const f=new Set(db.catFilter||[]);f.has(id)?f.delete(id):f.add(id);db.catFilter=[...f];persist();render();});
+    return b;};
+  cats.forEach(c=>bar.appendChild(chip(c.id,c.name,c.color)));
+  bar.appendChild(chip("","(none)",null));
+  const sortBtn=document.createElement("button");sortBtn.className="catsort"+(db.catSort?" on":"");
+  sortBtn.textContent="group by category";
+  sortBtn.addEventListener("click",()=>{db.catSort=!db.catSort;persist();render();});
+  bar.appendChild(sortBtn);
+  if((db.catFilter||[]).length){const clr=document.createElement("button");clr.className="catclear";clr.textContent="clear filter";
+    clr.addEventListener("click",()=>{db.catFilter=[];persist();render();});bar.appendChild(clr);}
+  return bar;
+}
+// drag a calendar block (task or event) to a new time; commits via setter(newStartMins,durationMins)
+function enableTimeDrag(el,startMins,durMins,colHeightPerMin,onCommit){
+  let sy,oy,moved;
+  const down=e=>{if(e.target.closest(".ev-resize"))return;e.preventDefault();
+    const pt=e.touches?e.touches[0]:e;sy=pt.clientY;oy=startMins;moved=false;dragging=true;el.classList.add("dragging");
+    document.addEventListener("mousemove",mv);document.addEventListener("mouseup",up);
+    document.addEventListener("touchmove",mv,{passive:false});document.addEventListener("touchend",up);};
+  const mv=e=>{const pt=e.touches?e.touches[0]:e;const dy=pt.clientY-sy;if(Math.abs(dy)>3)moved=true;
+    const newStart=oy+dy/colHeightPerMin;el.style.top=((newStart-DAY_START*60)*colHeightPerMin)+"px";
+    el._ns=newStart;if(e.cancelable)e.preventDefault();};
+  const up=()=>{dragging=false;el.classList.remove("dragging");
+    document.removeEventListener("mousemove",mv);document.removeEventListener("mouseup",up);
+    document.removeEventListener("touchmove",mv);document.removeEventListener("touchend",up);
+    if(moved){onCommit(Math.round((el._ns??oy)));}else{el._click&&el._click();}};
+  el.addEventListener("mousedown",down);el.addEventListener("touchstart",down,{passive:false});
+}
 
 function renderDay(){
   const iso=db.cursorDate;const wrap=document.createElement("div");wrap.className="timeline";
@@ -822,8 +972,9 @@ function renderDay(){
   const tp=head.querySelector(".today-pill");if(tp)tp.addEventListener("click",()=>{db.cursorDate=todayISO();render();});
   head.appendChild(modeToggle());
   wrap.appendChild(head);
+  wrap.appendChild(catControlBar());
 
-  const rows=tasksForDate(iso);
+  let rows=applyCatControls(tasksForDate(iso));
   if((db.calMode||"calendar")==="list"){
     if(!rows.length){const e=document.createElement("div");e.className="empty";
       e.textContent="Nothing scheduled. Add below, or give a task a due date.";wrap.appendChild(e);}
@@ -833,7 +984,12 @@ function renderDay(){
         <span class="a-tick"></span><span class="a-label"></span>${t.due_time?`<span class="a-time">${t.due_time}</span>`:""}`;
       r.querySelector(".a-label").textContent=t.text;
       r.querySelector(".a-tick").addEventListener("click",e=>{e.stopPropagation();t.status=t.status==="done"?"live":"done";touchTask(t);});
-      r.addEventListener("click",()=>openTask(t.id));wrap.appendChild(r);});}
+      r.addEventListener("click",()=>openTask(t.id));wrap.appendChild(r);});
+      // events in list mode too
+      eventsForDate(iso).forEach(ev=>{const r=document.createElement("div");r.className="agenda-row event-row";
+        r.innerHTML=`<span class="proj-chip evt">EVENT</span><span class="a-tick" style="visibility:hidden"></span>
+          <span class="a-label"></span><span class="a-time">${ev.start}–${ev.end}</span>`;
+        r.querySelector(".a-label").textContent=ev.title;r.addEventListener("click",()=>openEvent(ev.id));wrap.appendChild(r);});}
   } else {
     wrap.appendChild(dayGrid(iso,rows));
   }
@@ -843,8 +999,8 @@ function renderDay(){
 function dayGrid(iso,rows){
   const timed=rows.filter(r=>r.t.due_time);
   const allday=rows.filter(r=>!r.t.due_time);
+  const evs=eventsForDate(iso);
   const cal=document.createElement("div");cal.className="cal";
-  // all-day strip
   const ad=document.createElement("div");ad.className="allday";
   ad.innerHTML=`<div class="ad-label">all-day</div><div class="ad-items"></div>`;
   const adi=ad.querySelector(".ad-items");
@@ -853,24 +1009,37 @@ function dayGrid(iso,rows){
     c.style.borderLeftColor=p.color;c.textContent=t.text;c.title=p.name;
     c.addEventListener("click",()=>openTask(t.id));adi.appendChild(c);});
   cal.appendChild(ad);
-  // hourly grid
   const grid=document.createElement("div");grid.className="hourgrid";
   grid.style.height=((DAY_END-DAY_START)*HOUR_PX)+"px";
   for(let h=DAY_START;h<=DAY_END;h++){const row=document.createElement("div");row.className="hourline";
     row.style.top=((h-DAY_START)*HOUR_PX)+"px";
     row.innerHTML=`<span class="hourlbl">${String(h).padStart(2,"0")}:00</span>`;grid.appendChild(row);}
-  // now-line
   if(iso===todayISO()){const d=new Date();const mins=d.getHours()*60+d.getMinutes();
     if(mins>=DAY_START*60&&mins<=DAY_END*60){const nl=document.createElement("div");nl.className="nowline";
       nl.style.top=((mins-DAY_START*60)/60*HOUR_PX)+"px";grid.appendChild(nl);}}
+  // events first (behind tasks), styled distinctly
+  evs.forEach(ev=>{const sm=hm(ev.start),em=hm(ev.end);const top=(sm-DAY_START*60)/60*HOUR_PX;
+    const h=Math.max(22,((em-sm)/60*HOUR_PX));
+    const block=document.createElement("div");block.className="cal-eventblock";
+    block.style.top=Math.max(0,top)+"px";block.style.height=h+"px";
+    const p=ev.project_id&&projById(ev.project_id);if(p)block.style.boxShadow=`inset 4px 0 0 ${p.color}`;
+    block.innerHTML=`<b>${ev.start}–${ev.end}</b> ${esc(ev.title)}${ev.location?` · ${esc(ev.location)}`:""}`;
+    block._click=()=>openEvent(ev.id);
+    enableTimeDrag(block,sm,em-sm,HOUR_PX/60,(newStart)=>{const dur=em-sm;
+      ev.start=minsToTime(newStart);ev.end=minsToTime(newStart+dur);touchEvent(ev);});
+    grid.appendChild(block);});
+  // timed tasks
   timed.forEach(({t,p})=>{const mins=minutesOf(t);const top=(mins-DAY_START*60)/60*HOUR_PX;
     const ev=document.createElement("div");ev.className="event"+(t.status==="done"?" done":"");
     ev.style.top=Math.max(0,top)+"px";ev.style.borderLeftColor=p.color;ev.style.background=p.color+"1a";
     ev.innerHTML=`<b>${t.due_time}</b> ${esc(t.text)}`;ev.title=p.name;
-    ev.addEventListener("click",()=>openTask(t.id));grid.appendChild(ev);});
+    ev._click=()=>openTask(t.id);
+    enableTimeDrag(ev,mins,60,HOUR_PX/60,(newStart)=>{t.due_time=minsToTime(newStart);touchTask(t);});
+    grid.appendChild(ev);});
   cal.appendChild(grid);
   return cal;
 }
+function hm(s){const[h,m]=(s||"0:0").split(":").map(Number);return h*60+(m||0);}
 function dayAdder(iso){
   const add=document.createElement("div");add.className="day-add";
   const opts=liveProjects().map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join("");
@@ -882,6 +1051,10 @@ function dayAdder(iso){
     touchTask(db.tasks[id]);input.value="";timeIn.value="";};
   add.querySelector("button").addEventListener("click",go);
   input.addEventListener("keydown",e=>{if(e.key==="Enter")go();});
+  const evBtn=document.createElement("button");evBtn.textContent="+ event";evBtn.style.background="var(--card)";
+  evBtn.style.color="var(--graphite)";evBtn.style.border="1px solid var(--hair)";
+  evBtn.addEventListener("click",()=>{const id=newEvent(iso,"09:00","10:00",null);openEvent(id);});
+  add.appendChild(evBtn);
   return add;
 }
 function startOfWeek(iso){const d=fromISO(iso);const off=(d.getDay()+6)%7;return addDays(iso,-off);}
@@ -895,37 +1068,38 @@ function renderWeek(){
   head.querySelector(".today-pill").addEventListener("click",()=>{db.cursorDate=todayISO();render();});
   head.appendChild(modeToggle());
   wrap.appendChild(head);
+  wrap.appendChild(catControlBar());
   const names=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+  const dayRows=iso=>applyCatControls(tasksForDate(iso));
 
   if((db.calMode||"calendar")==="list"){
     const grid=document.createElement("div");grid.className="week-grid";
     for(let i=0;i<7;i++){const iso=addDays(start,i);const col=document.createElement("div");
       col.className="wday"+(iso===todayISO()?" is-today":"");
       col.innerHTML=`<h4><span>${names[i]}</span><b>${fromISO(iso).getDate()}</b></h4>`;
-      tasksForDate(iso).forEach(({t,p})=>{const tt=document.createElement("div");tt.className="wtask"+(t.status==="done"?" done":"");
+      dayRows(iso).forEach(({t,p})=>{const tt=document.createElement("div");tt.className="wtask"+(t.status==="done"?" done":"");
         tt.style.borderLeftColor=p.color;tt.textContent=(t.due_time?t.due_time+" ":"")+t.text;tt.title=p.name;
         tt.addEventListener("click",()=>openTask(t.id));col.appendChild(tt);});
+      eventsForDate(iso).forEach(ev=>{const tt=document.createElement("div");tt.className="wtask wevt";
+        tt.textContent=ev.start+" "+ev.title;tt.addEventListener("click",()=>openEvent(ev.id));col.appendChild(tt);});
       grid.appendChild(col);}
     wrap.appendChild(grid);
   } else {
     const cal=document.createElement("div");cal.className="weekcal";
-    // header row of day names
     const hdr=document.createElement("div");hdr.className="weekcal-hdr";
     hdr.innerHTML=`<div class="wc-corner"></div>`;
     for(let i=0;i<7;i++){const iso=addDays(start,i);const d=document.createElement("div");
       d.className="wc-dayname"+(iso===todayISO()?" is-today":"");
       d.innerHTML=`${names[i]} <b>${fromISO(iso).getDate()}</b>`;hdr.appendChild(d);}
     cal.appendChild(hdr);
-    // all-day strip across the week
     const adrow=document.createElement("div");adrow.className="weekcal-allday";
     adrow.innerHTML=`<div class="wc-adlabel">all-day</div>`;
     for(let i=0;i<7;i++){const iso=addDays(start,i);const cell=document.createElement("div");cell.className="wc-adcell";
-      tasksForDate(iso).filter(r=>!r.t.due_time).forEach(({t,p})=>{const c=document.createElement("div");
+      dayRows(iso).filter(r=>!r.t.due_time).forEach(({t,p})=>{const c=document.createElement("div");
         c.className="ad-chip"+(t.status==="done"?" done":"");c.style.borderLeftColor=p.color;c.textContent=t.text;c.title=p.name;
         c.addEventListener("click",()=>openTask(t.id));cell.appendChild(c);});
       adrow.appendChild(cell);}
     cal.appendChild(adrow);
-    // scrollable hour grid
     const body=document.createElement("div");body.className="weekcal-body";
     const gutter=document.createElement("div");gutter.className="wc-gutter";
     gutter.style.height=((DAY_END-DAY_START)*HOUR_PX)+"px";
@@ -937,12 +1111,22 @@ function renderWeek(){
       col.style.height=((DAY_END-DAY_START)*HOUR_PX)+"px";
       for(let h=DAY_START;h<=DAY_END;h++){const ln=document.createElement("div");ln.className="wc-hline";
         ln.style.top=((h-DAY_START)*HOUR_PX)+"px";col.appendChild(ln);}
-      tasksForDate(iso).filter(r=>r.t.due_time).forEach(({t,p})=>{const mins=minutesOf(t);
+      // events behind tasks
+      eventsForDate(iso).forEach(ev=>{const sm=hm(ev.start),em=hm(ev.end);const top=(sm-DAY_START*60)/60*HOUR_PX;
+        const hh=Math.max(18,(em-sm)/60*HOUR_PX);const block=document.createElement("div");block.className="wc-eventblock";
+        block.style.top=Math.max(0,top)+"px";block.style.height=hh+"px";
+        block.innerHTML=`<b>${ev.start}</b>${esc(ev.title)}`;block._click=()=>openEvent(ev.id);
+        enableTimeDrag(block,sm,em-sm,HOUR_PX/60,(newStart)=>{const dur=em-sm;
+          ev.start=minsToTime(newStart);ev.end=minsToTime(newStart+dur);touchEvent(ev);});
+        col.appendChild(block);});
+      dayRows(iso).filter(r=>r.t.due_time).forEach(({t,p})=>{const mins=minutesOf(t);
         const top=(mins-DAY_START*60)/60*HOUR_PX;const ev=document.createElement("div");
         ev.className="wc-event"+(t.status==="done"?" done":"");ev.style.top=Math.max(0,top)+"px";
         ev.style.borderLeftColor=p.color;ev.style.background=p.color+"1a";
         ev.innerHTML=`<b>${t.due_time}</b> ${esc(t.text)}`;ev.title=p.name;
-        ev.addEventListener("click",()=>openTask(t.id));col.appendChild(ev);});
+        ev._click=()=>openTask(t.id);
+        enableTimeDrag(ev,mins,60,HOUR_PX/60,(newStart)=>{t.due_time=minsToTime(newStart);touchTask(t);});
+        col.appendChild(ev);});
       if(iso===todayISO()){const d=new Date();const mins=d.getHours()*60+d.getMinutes();
         if(mins>=DAY_START*60&&mins<=DAY_END*60){const nl=document.createElement("div");nl.className="nowline";
           nl.style.top=((mins-DAY_START*60)/60*HOUR_PX)+"px";col.appendChild(nl);}}
@@ -971,7 +1155,7 @@ function buildManifest(){try{
 function registerSW(){try{
   if(!("serviceWorker"in navigator))return;
   if(location.protocol!=="https:"&&location.hostname!=="localhost")return;
-  const sw=`const C="chronicle-v1";self.addEventListener("install",e=>self.skipWaiting());
+  const sw=`const C="chronicle-v2";self.addEventListener("install",e=>self.skipWaiting());
     self.addEventListener("activate",e=>self.clients.claim());
     self.addEventListener("fetch",e=>{const u=new URL(e.request.url);if(u.hostname.endsWith("supabase.co"))return;
       e.respondWith(caches.open(C).then(c=>c.match(e.request).then(r=>r||fetch(e.request).then(net=>{if(e.request.method==="GET"&&net.ok)c.put(e.request,net.clone());return net;}).catch(()=>r))));});`;
