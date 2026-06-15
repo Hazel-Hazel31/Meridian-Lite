@@ -433,6 +433,23 @@
   .wdays label{display:flex;flex-direction:column;align-items:center;font-size:11px;font-family:var(--mono);gap:2px;cursor:pointer;}
   .totem.dragging{opacity:0.5;}
   .projbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 14px;flex-wrap:wrap;}
+  .groupbar{display:flex;justify-content:flex-end;margin-bottom:8px;}
+  .groupbar button,.addproj-btn{font-size:12px;padding:6px 11px;border:1px dashed var(--hair);border-radius:7px;background:var(--card);cursor:pointer;color:var(--graphite);}
+  .groupbar button:hover,.addproj-btn:hover{color:var(--live);border-color:var(--live);}
+  .grpsec{margin-bottom:14px;}
+  .grphead{display:flex;align-items:center;gap:8px;padding:8px 6px;border-bottom:1px solid var(--hair);margin-bottom:8px;}
+  .grphead.grp-over{background:color-mix(in srgb,var(--live) 15%,transparent);border-radius:6px;}
+  .grp-x{font-size:11px;color:var(--graphite);cursor:pointer;}
+  .grp-name{font-size:14px;font-weight:600;color:var(--ink);cursor:pointer;}
+  .grp-count{font-size:11px;color:var(--graphite);}
+  .grp-open{margin-left:auto;font-size:11px;padding:4px 9px;border:1px solid var(--hair);border-radius:6px;background:var(--card);cursor:pointer;color:var(--graphite);}
+  .grp-open:hover{color:var(--live);border-color:var(--live);}
+  .group-crumb{display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:14px;}
+  .group-crumb b{font-weight:600;}
+  .group-crumb button{font-size:12px;padding:4px 9px;border:1px solid var(--hair);border-radius:6px;background:var(--card);cursor:pointer;color:var(--graphite);}
+  .grp-pick{font-size:10px;border:1px solid var(--hair);border-radius:5px;background:var(--card);color:var(--graphite);max-width:84px;padding:2px;}
+  .totem-head .grp-pick{position:absolute;top:8px;right:34px;}
+  .prow-grp{font-size:10px;border:1px solid var(--hair);border-radius:5px;background:var(--card);color:var(--graphite);max-width:84px;}
   .projsearch{display:flex;align-items:center;gap:6px;border:1px solid var(--hair);border-radius:9px;padding:7px 11px;background:var(--card);flex:1;max-width:280px;}
   .projsearch .ps-ic{color:var(--graphite);font-size:14px;}
   .projsearch input{border:none;background:none;outline:none;font-size:13px;width:100%;color:var(--ink);}
@@ -560,7 +577,7 @@ function urgencyLabel(t){
   return "in "+days+"d";
 }
 
-function emptyLocal(){return{projects:{},tasks:{},categories:{},arrows:{},events:{},bundles:{},notes:{},view:"projects",cursorDate:todayISO(),openProject:null,calMode:"calendar",catFilter:[],catSort:false,viewports:{},notif:{enabled:false,onDo:true,onDue:true,lead:1},projView:"cards",projSearch:"",lastPull:0};}
+function emptyLocal(){return{projects:{},tasks:{},categories:{},arrows:{},events:{},bundles:{},notes:{},groups:{},view:"projects",cursorDate:todayISO(),openProject:null,openGroup:null,collapsedGroups:{},calMode:"calendar",catFilter:[],catSort:false,viewports:{},notif:{enabled:false,onDo:true,onDue:true,lead:1},projView:"cards",projSearch:"",lastPull:0};}
 let db=loadLocal();
 function loadLocal(){
   try{
@@ -569,6 +586,7 @@ function loadLocal(){
     const s=JSON.parse(raw);
     s.projects=s.projects||{};s.tasks=s.tasks||{};s.categories=s.categories||{};s.arrows=s.arrows||{};
     s.events=s.events||{};s.bundles=s.bundles||{};s.viewports=s.viewports||{};s.notes=s.notes||{};
+    s.groups=s.groups||{};s.collapsedGroups=s.collapsedGroups||{};s.openGroup=s.openGroup||null;
     s.notif=s.notif||{enabled:false,onDo:true,onDue:true,lead:1};
     if(s.projView==null)s.projView="cards";
     if(s.projSearch==null)s.projSearch="";
@@ -747,8 +765,19 @@ async function uploadFile(file){
 
 function touchProject(p){p.updated_at=now();persist();render();pushSoon();}
 function touchTask(t){t.updated_at=now();persist();render();pushSoon();}
-function reorderProject(dragId,targetId){
-  const list=liveProjects();
+const liveGroups=()=>Object.values(db.groups).filter(g=>!g.deleted).sort((a,b)=>(a.order==null?a.created:a.order)-(b.order==null?b.created:b.order));
+function newGroup(name){const id=uid();const maxO=Math.max(0,...liveGroups().map(g=>g.order==null?0:g.order));
+  db.groups[id]={id,name:name||"New group",order:maxO+1,created:now(),updated_at:now(),deleted:false};
+  persist();pushSoon();return id;}
+function renameGroup(g,name){g.name=name;g.updated_at=now();persist();pushSoon();}
+function delGroup(g){g.deleted=true;g.updated_at=now();
+  // projects in this group become ungrouped
+  Object.values(db.projects).forEach(p=>{if(p.group_id===g.id){p.group_id=null;p.updated_at=now();}});
+  if(db.openGroup===g.id){db.openGroup=null;}persist();render();pushSoon();}
+function assignProjectGroup(pid,gid){const p=db.projects[pid];if(!p)return;
+  p.group_id=gid||null;p.updated_at=now();persist();render();pushSoon();}
+function projectsInGroup(gid){return liveProjects().filter(p=>(p.group_id||null)===(gid||null));}
+function reorderProject(dragId,targetId){  const list=liveProjects();
   const from=list.findIndex(p=>p.id===dragId),to=list.findIndex(p=>p.id===targetId);
   if(from<0||to<0||from===to)return;
   const[m]=list.splice(from,1);list.splice(to,0,m);
@@ -757,7 +786,7 @@ function reorderProject(dragId,targetId){
   persist();render();pushSoon();
 }
 function newProject(){const id=uid();const maxO=Math.max(0,...liveProjects().map(p=>p.order==null?0:p.order));
-  db.projects[id]={id,name:"New project",order:maxO+1,
+  db.projects[id]={id,name:"New project",order:maxO+1,group_id:db.openGroup||null,
   color:PALETTE[liveProjects().length%PALETTE.length],created:now(),updated_at:now(),deleted:false};
   persist();render();pushSoon();return id;}
 function delProject(p){p.deleted=true;p.updated_at=now();tasksOf(p.id).forEach(t=>{t.deleted=true;t.updated_at=now();});
@@ -789,7 +818,7 @@ async function syncNow(){
     setSync("syncing","syncing");
     const U=USER_ID;
     const pRows=Object.values(db.projects).map(p=>({id:p.id,user_id:U,name:p.name??"",color:p.color??"#888",
-      order:p.order==null?null:p.order,
+      order:p.order==null?null:p.order,group_id:p.group_id??null,
       created:p.created??p.updated_at??now(),updated_at:p.updated_at??now(),deleted:!!p.deleted}));
     const tRows=Object.values(db.tasks).map(t=>({id:t.id,user_id:U,project_id:t.project_id??null,text:t.text??"",
       status:t.status??"upcoming",date:t.date??null,do_date:t.do_date??null,do_end:t.do_end??"",sessions:JSON.stringify(t.sessions||[]),category:t.category??"",location:t.location??"",
@@ -815,9 +844,12 @@ async function syncNow(){
       text:n.text??"",url:n.url??"",filename:n.filename??"",x:Math.round(n.x??80),y:Math.round(n.y??80),
       w:Math.round(n.w??220),h:Math.round(n.h??120),updated_at:n.updated_at??now(),deleted:!!n.deleted}));
     await upsert("notes",nRows);
+    const gRows=Object.values(db.groups).map(g=>({id:g.id,user_id:U,name:g.name??"",
+      order:g.order==null?null:g.order,created:g.created??now(),updated_at:g.updated_at??now(),deleted:!!g.deleted}));
+    await upsert("groups",gRows);
     const since=db.lastPull||0;
-    const[sp,st,sc,sa,se,sb,sn]=await Promise.all([pull("projects",since),pull("tasks",since),
-      pull("categories",since),pull("arrows",since),pull("events",since),pull("bundles",since),pull("notes",since)]);
+    const[sp,st,sc,sa,se,sb,sn,sg]=await Promise.all([pull("projects",since),pull("tasks",since),
+      pull("categories",since),pull("arrows",since),pull("events",since),pull("bundles",since),pull("notes",since),pull("groups",since)]);
     let changed=false,maxTs=since;
     const merge=(store,row)=>{maxTs=Math.max(maxTs,row.updated_at||0);const cur=store[row.id];
       if(!cur||(row.updated_at||0)>(cur.updated_at||0)){store[row.id]=row;changed=true;}};
@@ -831,6 +863,7 @@ async function syncNow(){
       task_ids:(()=>{try{return JSON.parse(r.task_ids||"[]")}catch(e){return[]}})(),
       collapsed:r.collapsed,x:r.x,y:r.y,w:r.w,h:r.h,updated_at:r.updated_at,deleted:r.deleted};merge(db.bundles,norm);});
     sn.forEach(r=>merge(db.notes,r));
+    sg.forEach(r=>merge(db.groups,r));
     db.lastPull=maxTs;persist();
     if(changed&&!dragging)render();
     setSync("online","synced");
@@ -891,61 +924,113 @@ function renderProjects(){
   const q=(db.projSearch||"").toLowerCase();
   const matches=p=>!q||(p.name||"").toLowerCase().includes(q);
 
-  if(db.projView==="list"){
-    outer.appendChild(renderProjectList(matches));
-    outer.appendChild(buildUnassigned());
+  // group page: showing one group's projects only
+  if(db.openGroup&&db.groups[db.openGroup]&&!db.groups[db.openGroup].deleted){
+    const g=db.groups[db.openGroup];
+    const back=document.createElement("div");back.className="group-crumb";
+    back.innerHTML=`<button id="grpBack">← all groups</button> · <b></b>
+      <button id="grpRename" title="Rename">✎</button><button id="grpDel" title="Delete group">🗑</button>`;
+    back.querySelector("b").textContent=g.name;
+    back.querySelector("#grpBack").addEventListener("click",()=>{db.openGroup=null;persist();render();});
+    back.querySelector("#grpRename").addEventListener("click",()=>{const n=prompt("Group name:",g.name);if(n&&n.trim())renameGroup(g,n.trim()),render();});
+    back.querySelector("#grpDel").addEventListener("click",()=>{if(confirm(`Delete group "${g.name}"? Projects inside become ungrouped.`))delGroup(g);});
+    outer.appendChild(back);
+    const board=document.createElement("div");board.className="board";
+    projectsInGroup(g.id).filter(matches).forEach(p=>board.appendChild(buildProjectCard(p)));
+    const add=document.createElement("div");add.className="totem add";add.textContent="+ new project in group";
+    add.addEventListener("click",()=>{const id=newProject();openProject(id);});board.appendChild(add);
+    outer.appendChild(board);
     app.replaceChildren(outer);return;
   }
 
-  const board=document.createElement("div");board.className="board";
-  liveProjects().forEach(p=>{
-    const tasks=tasksOf(p.id);const done=tasks.filter(t=>t.status==="done");
-    const live=tasks.filter(t=>t.status==="live");const up=tasks.filter(t=>t.status==="upcoming");
-    const pend=tasks.filter(t=>t.status==="pending");
-    const counted=tasks.filter(t=>t.status!=="pending");
-    const pct=counted.length?Math.round(done.length/counted.length*100):0;
-    const el=document.createElement("div");el.className="totem";el.dataset.pid=p.id;el.draggable=true;
-    el.addEventListener("dragstart",e=>{
-      // don't hijack drags that begin on inner controls (buttons, inputs, task cards)
-      if(e.target.closest("button,input,select,textarea,.card,.stack")){e.preventDefault();return;}
-      e.dataTransfer.setData("text/proj",p.id);e.dataTransfer.effectAllowed="move";el.classList.add("dragging");});
-    el.addEventListener("dragend",()=>el.classList.remove("dragging"));
-    el.innerHTML=`<div class="totem-head"><span class="swatch" style="background:${p.color}"></span>
-      <button class="open-proj" title="Open canvas">⤢</button>
-      <button class="delproj" title="Delete">&times;</button>
-      <h3 title="Open canvas"></h3>
-      <div class="progress"><i style="width:${pct}%;background:${p.color}"></i></div>
-      <div class="totem-meta"><span>${done.length}/${counted.length} done</span><span>${pct}%</span>${pend.length?`<span>${pend.length} pending</span>`:""}</div></div>
-      <div class="stack"></div>`;
-    el.querySelector("h3").textContent=p.name;
-    el.querySelector("h3").addEventListener("click",()=>openProject(p.id));
-    el.querySelector(".open-proj").addEventListener("click",()=>openProject(p.id));
-    el.querySelector(".delproj").addEventListener("click",()=>{if(confirm(`Delete "${p.name}" and its tasks?`))delProject(p);});
-    // drop target: a loose task → assign it; OR another project card → reorder
-    el.addEventListener("dragover",e=>{e.preventDefault();
-      const isProj=e.dataTransfer.types.includes("text/proj");
-      el.classList.add(isProj?"reorder-over":"droptarget");});
-    el.addEventListener("dragleave",()=>{el.classList.remove("droptarget");el.classList.remove("reorder-over");});
-    el.addEventListener("drop",e=>{e.preventDefault();el.classList.remove("droptarget");el.classList.remove("reorder-over");
-      const pid=e.dataTransfer.getData("text/proj");
-      if(pid&&db.projects[pid]&&pid!==p.id){reorderProject(pid,p.id);return;}
-      const tid=e.dataTransfer.getData("text/task");if(tid&&db.tasks[tid]){db.tasks[tid].project_id=p.id;db.tasks[tid].status="pending";touchTask(db.tasks[tid]);}});
-    const stack=el.querySelector(".stack");
-    zone(stack,"Done",done,"done",true);zone(stack,"Now",live,"live",done.length===0);zone(stack,"Upcoming",up,"upcoming",false);
-    const qa=document.createElement("input");qa.className="quickadd";qa.placeholder="+ quick add task";
-    qa.addEventListener("keydown",e=>{if(e.key==="Enter"&&qa.value.trim()){
-      const id=newTask(p.id,"upcoming",null);db.tasks[id].text=qa.value.trim();touchTask(db.tasks[id]);qa.value="";}});
-    stack.appendChild(qa);board.appendChild(el);
+  // groups toolbar row: + new group
+  const gbar=document.createElement("div");gbar.className="groupbar";
+  gbar.innerHTML=`<button id="newGroupBtn">+ new group</button>`;
+  gbar.querySelector("#newGroupBtn").addEventListener("click",()=>{const n=prompt("Group name:");if(n&&n.trim()){newGroup(n.trim());render();}});
+  outer.appendChild(gbar);
+
+  const isList=db.projView==="list";
+  // render each group as a collapsible section, then ungrouped
+  const sections=[...liveGroups().map(g=>({g})),{g:null}];
+  sections.forEach(({g})=>{
+    const gid=g?g.id:null;
+    const projs=projectsInGroup(gid).filter(matches);
+    if(!g&&!projs.length)return; // hide empty ungrouped
+    const sec=document.createElement("div");sec.className="grpsec";
+    const collapsed=g?!!db.collapsedGroups[gid]:false;
+    const head=document.createElement("div");head.className="grphead";head.dataset.gid=gid||"";
+    head.innerHTML=`<span class="grp-x">${collapsed?"▸":"▾"}</span>
+      <span class="grp-name">${g?esc(g.name):"Ungrouped"}</span>
+      <span class="grp-count">${projs.length} project${projs.length===1?"":"s"}</span>
+      ${g?`<button class="grp-open" title="Open group page">⤢ open group</button>`:""}`;
+    head.querySelector(".grp-x").addEventListener("click",()=>{if(g){db.collapsedGroups[gid]=!collapsed;persist();render();}});
+    head.querySelector(".grp-name").addEventListener("click",()=>{if(g){db.collapsedGroups[gid]=!collapsed;persist();render();}});
+    if(g)head.querySelector(".grp-open").addEventListener("click",()=>{db.openGroup=gid;persist();render();});
+    // drop a project onto the header to move it into this group
+    head.addEventListener("dragover",e=>{if(e.dataTransfer.types.includes("text/proj")){e.preventDefault();head.classList.add("grp-over");}});
+    head.addEventListener("dragleave",()=>head.classList.remove("grp-over"));
+    head.addEventListener("drop",e=>{e.preventDefault();head.classList.remove("grp-over");
+      const pid=e.dataTransfer.getData("text/proj");if(pid&&db.projects[pid])assignProjectGroup(pid,gid);});
+    sec.appendChild(head);
+    if(!collapsed){
+      if(isList){const list=document.createElement("div");list.className="projlist";
+        projs.forEach(p=>list.appendChild(buildProjectRow(p)));sec.appendChild(list);}
+      else{const board=document.createElement("div");board.className="board grouped";
+        projs.forEach(p=>board.appendChild(buildProjectCard(p)));sec.appendChild(board);}
+    }
+    outer.appendChild(sec);
   });
-  const add=document.createElement("div");add.className="totem add";add.textContent="+ new project";
-  add.addEventListener("click",()=>{const id=newProject();openProject(id);});board.appendChild(add);
-  outer.appendChild(board);
+
+  // global add-project (lands ungrouped)
+  const addWrap=document.createElement("div");addWrap.style.marginTop="6px";
+  const add=document.createElement("button");add.className="addproj-btn";add.textContent="+ new project";
+  add.addEventListener("click",()=>{const id=newProject();openProject(id);});addWrap.appendChild(add);
+  outer.appendChild(addWrap);
+
   outer.appendChild(buildUnassigned());
-  // apply current search filter to cards
-  if(q)board.querySelectorAll("[data-pid]").forEach(el=>{
-    const nm=(db.projects[el.dataset.pid]?.name||"").toLowerCase();
-    el.style.display=nm.includes(q)?"":"none";});
   app.replaceChildren(outer);
+}
+function buildProjectCard(p){
+  const tasks=tasksOf(p.id);const done=tasks.filter(t=>t.status==="done");
+  const live=tasks.filter(t=>t.status==="live");const up=tasks.filter(t=>t.status==="upcoming");
+  const pend=tasks.filter(t=>t.status==="pending");
+  const counted=tasks.filter(t=>t.status!=="pending");
+  const pct=counted.length?Math.round(done.length/counted.length*100):0;
+  const el=document.createElement("div");el.className="totem";el.dataset.pid=p.id;el.draggable=true;
+  el.addEventListener("dragstart",e=>{
+    if(e.target.closest("button,input,select,textarea,.card,.stack")){e.preventDefault();return;}
+    e.dataTransfer.setData("text/proj",p.id);e.dataTransfer.effectAllowed="move";el.classList.add("dragging");});
+  el.addEventListener("dragend",()=>el.classList.remove("dragging"));
+  el.innerHTML=`<div class="totem-head"><span class="swatch" style="background:${p.color}"></span>
+    <button class="open-proj" title="Open canvas">⤢</button>
+    <select class="grp-pick" title="Move to group"></select>
+    <button class="delproj" title="Delete">&times;</button>
+    <h3 title="Open canvas"></h3>
+    <div class="progress"><i style="width:${pct}%;background:${p.color}"></i></div>
+    <div class="totem-meta"><span>${done.length}/${counted.length} done</span><span>${pct}%</span>${pend.length?`<span>${pend.length} pending</span>`:""}</div></div>
+    <div class="stack"></div>`;
+  el.querySelector("h3").textContent=p.name;
+  el.querySelector("h3").addEventListener("click",()=>openProject(p.id));
+  el.querySelector(".open-proj").addEventListener("click",()=>openProject(p.id));
+  el.querySelector(".delproj").addEventListener("click",()=>{if(confirm(`Delete "${p.name}" and its tasks?`))delProject(p);});
+  const gp=el.querySelector(".grp-pick");
+  gp.innerHTML=`<option value="">no group</option>`+liveGroups().map(g=>`<option value="${g.id}" ${p.group_id===g.id?"selected":""}>${esc(g.name)}</option>`).join("");
+  gp.addEventListener("change",()=>assignProjectGroup(p.id,gp.value||null));
+  gp.addEventListener("click",e=>e.stopPropagation());
+  el.addEventListener("dragover",e=>{e.preventDefault();
+    const isProj=e.dataTransfer.types.includes("text/proj");el.classList.add(isProj?"reorder-over":"droptarget");});
+  el.addEventListener("dragleave",()=>{el.classList.remove("droptarget");el.classList.remove("reorder-over");});
+  el.addEventListener("drop",e=>{e.preventDefault();el.classList.remove("droptarget");el.classList.remove("reorder-over");
+    const pid=e.dataTransfer.getData("text/proj");
+    if(pid&&db.projects[pid]&&pid!==p.id){reorderProject(pid,p.id);return;}
+    const tid=e.dataTransfer.getData("text/task");if(tid&&db.tasks[tid]){db.tasks[tid].project_id=p.id;db.tasks[tid].status="pending";touchTask(db.tasks[tid]);}});
+  const stack=el.querySelector(".stack");
+  zone(stack,"Done",done,"done",true);zone(stack,"Now",live,"live",done.length===0);zone(stack,"Upcoming",up,"upcoming",false);
+  const qa=document.createElement("input");qa.className="quickadd";qa.placeholder="+ quick add task";
+  qa.addEventListener("keydown",e=>{if(e.key==="Enter"&&qa.value.trim()){
+    const id=newTask(p.id,"upcoming",null);db.tasks[id].text=qa.value.trim();touchTask(db.tasks[id]);qa.value="";}});
+  stack.appendChild(qa);
+  return el;
 }
 function buildUnassigned(){
   const wrap=document.createElement("div");
@@ -970,37 +1055,36 @@ function buildUnassigned(){
   return wrap;
 }
 // compact list view: colour-bar rows with now/upcoming + %, drag handle to reorder
-function renderProjectList(matches){
-  const list=document.createElement("div");list.className="projlist";
-  liveProjects().filter(matches).forEach(p=>{
-    const tasks=tasksOf(p.id);const done=tasks.filter(t=>t.status==="done");
-    const live=tasks.filter(t=>t.status==="live");const up=tasks.filter(t=>t.status==="upcoming");
-    const counted=tasks.filter(t=>t.status!=="pending");
-    const pct=counted.length?Math.round(done.length/counted.length*100):0;
-    const row=document.createElement("div");row.className="prow";row.dataset.pid=p.id;row.draggable=true;
-    row.style.borderLeftColor=p.color;
-    row.innerHTML=`<span class="prow-grip">⠿</span>
-      <span class="prow-name"></span>
-      ${live.length?`<span class="prow-chip now" style="color:${p.color};background:${p.color}1f">${live.length} now</span>`:""}
-      ${up.length?`<span class="prow-up">${up.length} upcoming</span>`:""}
-      <div class="prow-prog"><i style="width:${pct}%;background:${p.color}"></i></div>
-      <span class="prow-pct">${pct}%</span>
-      <button class="prow-open" title="Open">⤢</button>`;
-    row.querySelector(".prow-name").textContent=p.name;
-    row.querySelector(".prow-name").addEventListener("click",()=>openProject(p.id));
-    row.querySelector(".prow-open").addEventListener("click",()=>openProject(p.id));
-    row.addEventListener("dragstart",e=>{if(e.target.closest("button")){e.preventDefault();return;}
-      e.dataTransfer.setData("text/proj",p.id);e.dataTransfer.effectAllowed="move";row.classList.add("dragging");});
-    row.addEventListener("dragend",()=>row.classList.remove("dragging"));
-    row.addEventListener("dragover",e=>{e.preventDefault();row.classList.add("reorder-over");});
-    row.addEventListener("dragleave",()=>row.classList.remove("reorder-over"));
-    row.addEventListener("drop",e=>{e.preventDefault();row.classList.remove("reorder-over");
-      const pid=e.dataTransfer.getData("text/proj");
-      if(pid&&db.projects[pid]&&pid!==p.id)reorderProject(pid,p.id);});
-    list.appendChild(row);});
-  const add=document.createElement("div");add.className="prow add";add.textContent="+ new project";
-  add.addEventListener("click",()=>{const id=newProject();openProject(id);});list.appendChild(add);
-  return list;
+function buildProjectRow(p){
+  const tasks=tasksOf(p.id);const done=tasks.filter(t=>t.status==="done");
+  const live=tasks.filter(t=>t.status==="live");const up=tasks.filter(t=>t.status==="upcoming");
+  const counted=tasks.filter(t=>t.status!=="pending");
+  const pct=counted.length?Math.round(done.length/counted.length*100):0;
+  const row=document.createElement("div");row.className="prow";row.dataset.pid=p.id;row.draggable=true;
+  row.style.borderLeftColor=p.color;
+  row.innerHTML=`<span class="prow-grip">⠿</span>
+    <span class="prow-name"></span>
+    ${live.length?`<span class="prow-chip now" style="color:${p.color};background:${p.color}1f">${live.length} now</span>`:""}
+    ${up.length?`<span class="prow-up">${up.length} upcoming</span>`:""}
+    <div class="prow-prog"><i style="width:${pct}%;background:${p.color}"></i></div>
+    <span class="prow-pct">${pct}%</span>
+    <select class="prow-grp" title="Move to group"></select>
+    <button class="prow-open" title="Open">⤢</button>`;
+  row.querySelector(".prow-name").textContent=p.name;
+  row.querySelector(".prow-name").addEventListener("click",()=>openProject(p.id));
+  row.querySelector(".prow-open").addEventListener("click",()=>openProject(p.id));
+  const gp=row.querySelector(".prow-grp");
+  gp.innerHTML=`<option value="">no group</option>`+liveGroups().map(g=>`<option value="${g.id}" ${p.group_id===g.id?"selected":""}>${esc(g.name)}</option>`).join("");
+  gp.addEventListener("change",()=>assignProjectGroup(p.id,gp.value||null));
+  row.addEventListener("dragstart",e=>{if(e.target.closest("button,select")){e.preventDefault();return;}
+    e.dataTransfer.setData("text/proj",p.id);e.dataTransfer.effectAllowed="move";row.classList.add("dragging");});
+  row.addEventListener("dragend",()=>row.classList.remove("dragging"));
+  row.addEventListener("dragover",e=>{e.preventDefault();row.classList.add("reorder-over");});
+  row.addEventListener("dragleave",()=>row.classList.remove("reorder-over"));
+  row.addEventListener("drop",e=>{e.preventDefault();row.classList.remove("reorder-over");
+    const pid=e.dataTransfer.getData("text/proj");
+    if(pid&&db.projects[pid]&&pid!==p.id)reorderProject(pid,p.id);});
+  return row;
 }
 function zone(stack,label,tasks,status,first){
   const lab=document.createElement("div");lab.className="zone-label"+(first?" first":"");lab.textContent=label;stack.appendChild(lab);
