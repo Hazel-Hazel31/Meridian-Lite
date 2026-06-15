@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#23201b">
-<title>Chronicle</title>
+<title>Meridian</title>
 <link rel="manifest" id="manifestLink">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -77,6 +77,9 @@
     margin:10px 0 4px;display:flex;align-items:center;gap:8px;}
   .zone-label::after{content:"";flex:1;height:1px;background:var(--hair);}
   .zone-label.first{margin-top:2px;}
+  .zone-label.zl-upcoming{color:#7a6fb0;font-weight:600;}
+  .zone-label.zl-live{color:#BA7517;font-weight:600;}
+  .task.upcoming{opacity:.82;}
   .task{display:flex;align-items:flex-start;gap:9px;padding:7px 9px;border-radius:9px;font-size:13.5px;
     border:1px solid transparent;position:relative;cursor:pointer;}
   .task:hover{background:var(--paper);}
@@ -449,6 +452,11 @@
   .totem-head .grp-pick{position:absolute;top:8px;right:34px;}
   .prow-grp{font-size:10px;border:1px solid var(--hair);border-radius:5px;background:var(--card);color:var(--graphite);max-width:84px;}
   .done-hidden{font-size:10.5px;color:var(--graphite);font-style:italic;padding:2px 4px 4px;opacity:.75;}
+  .pimp{width:10px;height:10px;border-radius:50%;display:inline-block;cursor:pointer;flex:0 0 auto;border:1.5px solid var(--graphite);}
+  .pimp-high{background:#c0392b;border-color:#c0392b;}
+  .pimp-med{background:#e08a1e;border-color:#e08a1e;}
+  .pimp-low{background:transparent;border-color:var(--graphite);}
+  .totem-head .pimp{position:absolute;top:10px;right:58px;}
   .projsearch{display:flex;align-items:center;gap:6px;border:1px solid var(--hair);border-radius:9px;padding:7px 11px;background:var(--card);flex:1;max-width:280px;}
   .projsearch .ps-ic{color:var(--graphite);font-size:14px;}
   .projsearch input{border:none;background:none;outline:none;font-size:13px;width:100%;color:var(--ink);}
@@ -498,14 +506,14 @@
 <body>
 <div id="loginGate" style="display:none;position:fixed;inset:0;background:var(--paper,#fff);z-index:500;align-items:center;justify-content:center;padding:24px;">
   <div style="max-width:340px;width:100%;text-align:center;">
-    <div style="font-size:24px;font-weight:600;margin-bottom:6px;">Chronicle<span style="color:#d98a2b">.</span></div>
+    <div style="font-size:24px;font-weight:600;margin-bottom:6px;">Meridian<span style="color:#d98a2b">.</span></div>
     <div id="loginMsg" style="font-size:13px;color:#666;margin-bottom:18px;">Sign in to sync your planner. We'll email you a one-tap link.</div>
     <input type="email" id="loginEmail" placeholder="your email" style="width:100%;padding:12px;border:1px solid #ccc;border-radius:9px;font-size:15px;margin-bottom:10px;box-sizing:border-box;">
     <button id="loginBtn" style="width:100%;padding:12px;background:#1a1a1a;color:#fff;border:none;border-radius:9px;font-size:15px;cursor:pointer;">Email me a sign-in link</button>
   </div>
 </div>
 <header class="topbar">
-  <div class="brand" id="brandHome">Chronicle<span class="dot">.</span><small>lite</small></div>
+  <div class="brand" id="brandHome">Meridian<span class="dot">.</span></div>
   <nav class="views">
     <button data-view="projects" class="active">Projects</button>
     <button data-view="day">Day</button>
@@ -775,7 +783,16 @@ function delGroup(g){g.deleted=true;g.updated_at=now();
   if(db.openGroup===g.id){db.openGroup=null;}persist();render();pushSoon();}
 function assignProjectGroup(pid,gid){const p=db.projects[pid];if(!p)return;
   p.group_id=gid||null;p.updated_at=now();persist();render();pushSoon();}
-function projectsInGroup(gid){return liveProjects().filter(p=>(p.group_id||null)===(gid||null));}
+function projectsInGroup(gid){
+  const rank={high:0,med:1,low:2};
+  return liveProjects().filter(p=>(p.group_id||null)===(gid||null))
+    .sort((a,b)=>{
+      const ra=rank[a.importance||"med"],rb=rank[b.importance||"med"];
+      if(ra!==rb)return ra-rb; // high first
+      const ao=(a.order==null?(a.created||0):a.order),bo=(b.order==null?(b.created||0):b.order);
+      return ao-bo; // within same importance, manual order
+    });
+}
 function reorderProject(dragId,targetId){  const list=liveProjects();
   const from=list.findIndex(p=>p.id===dragId),to=list.findIndex(p=>p.id===targetId);
   if(from<0||to<0||from===to)return;
@@ -785,7 +802,7 @@ function reorderProject(dragId,targetId){  const list=liveProjects();
   persist();render();pushSoon();
 }
 function newProject(){const id=uid();const maxO=Math.max(0,...liveProjects().map(p=>p.order==null?0:p.order));
-  db.projects[id]={id,name:"New project",order:maxO+1,group_id:db.openGroup||null,
+  db.projects[id]={id,name:"New project",order:maxO+1,group_id:db.openGroup||null,importance:"med",
   color:PALETTE[liveProjects().length%PALETTE.length],created:now(),updated_at:now(),deleted:false};
   persist();render();pushSoon();return id;}
 function delProject(p){p.deleted=true;p.updated_at=now();tasksOf(p.id).forEach(t=>{t.deleted=true;t.updated_at=now();});
@@ -820,11 +837,11 @@ async function syncNow(){
     setSync("syncing","syncing");
     const U=USER_ID;
     const pRows=Object.values(db.projects).map(p=>({id:p.id,user_id:U,name:p.name??"",color:p.color??"#888",
-      order:p.order==null?null:p.order,group_id:p.group_id??null,
+      order:p.order==null?null:p.order,group_id:p.group_id??null,importance:p.importance??"med",
       created:p.created??p.updated_at??now(),updated_at:p.updated_at??now(),deleted:!!p.deleted}));
     const tRows=Object.values(db.tasks).map(t=>({id:t.id,user_id:U,project_id:t.project_id??null,text:t.text??"",
       status:t.status??"upcoming",date:t.date??null,do_date:t.do_date??null,do_end:t.do_end??"",sessions:JSON.stringify(t.sessions||[]),category:t.category??"",location:t.location??"",
-      notes:t.notes??"",due_time:t.due_time??"",importance:t.importance??"med",done_at:t.done_at??null,x:Math.round(t.x??40),y:Math.round(t.y??40),
+      notes:t.notes??"",due_time:t.due_time??"",importance:t.importance??"med",done_at:t.done_at??null,pinned:!!t.pinned,x:Math.round(t.x??40),y:Math.round(t.y??40),
       updated_at:t.updated_at??now(),deleted:!!t.deleted}));
     await upsert("projects",pRows);
     await upsert("tasks",tRows);
@@ -1018,6 +1035,7 @@ function buildProjectCard(p){
     e.dataTransfer.setData("text/proj",p.id);e.dataTransfer.effectAllowed="move";el.classList.add("dragging");});
   el.addEventListener("dragend",()=>el.classList.remove("dragging"));
   el.innerHTML=`<div class="totem-head"><span class="swatch" style="background:${p.color}"></span>
+    <span class="pimp pimp-${p.importance||"med"}" title="Importance — click to change"></span>
     <button class="open-proj" title="Open canvas">⤢</button>
     <select class="grp-pick" title="Move to group"></select>
     <button class="delproj" title="Delete">&times;</button>
@@ -1028,6 +1046,8 @@ function buildProjectCard(p){
   el.querySelector("h3").textContent=p.name;
   el.querySelector("h3").addEventListener("click",()=>openProject(p.id));
   el.querySelector(".open-proj").addEventListener("click",()=>openProject(p.id));
+  el.querySelector(".pimp").addEventListener("click",e=>{e.stopPropagation();
+    const order=["low","med","high"];p.importance=order[(order.indexOf(p.importance||"med")+1)%3];p.updated_at=now();persist();render();pushSoon();});
   el.querySelector(".delproj").addEventListener("click",()=>{if(confirm(`Delete "${p.name}" and its tasks?`))delProject(p);});
   const gp=el.querySelector(".grp-pick");
   gp.innerHTML=`<option value="">no group</option>`+liveGroups().map(g=>`<option value="${g.id}" ${p.group_id===g.id?"selected":""}>${esc(g.name)}</option>`).join("");
@@ -1082,6 +1102,7 @@ function buildProjectRow(p){
   const row=document.createElement("div");row.className="prow";row.dataset.pid=p.id;row.draggable=true;
   row.style.borderLeftColor=p.color;
   row.innerHTML=`<span class="prow-grip">⠿</span>
+    <span class="pimp pimp-${p.importance||"med"}" title="Importance — click to change"></span>
     <span class="prow-name"></span>
     ${live.length?`<span class="prow-chip now" style="color:${p.color};background:${p.color}1f">${live.length} now</span>`:""}
     ${up.length?`<span class="prow-up">${up.length} upcoming</span>`:""}
@@ -1091,6 +1112,8 @@ function buildProjectRow(p){
     <button class="prow-open" title="Open">⤢</button>`;
   row.querySelector(".prow-name").textContent=p.name;
   row.querySelector(".prow-name").addEventListener("click",()=>openProject(p.id));
+  row.querySelector(".pimp").addEventListener("click",e=>{e.stopPropagation();
+    const order=["low","med","high"];p.importance=order[(order.indexOf(p.importance||"med")+1)%3];p.updated_at=now();persist();render();pushSoon();});
   row.querySelector(".prow-open").addEventListener("click",()=>openProject(p.id));
   const gp=row.querySelector(".prow-grp");
   gp.innerHTML=`<option value="">no group</option>`+liveGroups().map(g=>`<option value="${g.id}" ${p.group_id===g.id?"selected":""}>${esc(g.name)}</option>`).join("");
@@ -1106,7 +1129,7 @@ function buildProjectRow(p){
   return row;
 }
 function zone(stack,label,tasks,status,first){
-  const lab=document.createElement("div");lab.className="zone-label"+(first?" first":"");lab.textContent=label;stack.appendChild(lab);
+  const lab=document.createElement("div");lab.className="zone-label zl-"+status+(first?" first":"");lab.textContent=label;stack.appendChild(lab);
   if(!tasks.length){const ph=document.createElement("div");ph.className="task "+status;ph.style.opacity=".5";
     ph.style.fontStyle="italic";ph.style.cursor="default";ph.innerHTML=`<span class="label" style="font-size:12.5px">—</span>`;stack.appendChild(ph);return;}
   tasks.forEach(t=>{const row=document.createElement("div");row.className="task "+status;row.style.position="relative";
@@ -1127,6 +1150,28 @@ function setStatus(t,s){
   if(s==="done"&&!wasDone)t.done_at=now();
   if(s!=="done")t.done_at=null;
 }
+// mark a task as manually pinned (user chose its status) so auto-status leaves it alone
+function pinStatus(t,s){t.pinned=true;setStatus(t,s);}
+// soonest relevant date for a task: earliest of due date and any session/do_date, today or future
+function soonestDate(t){
+  const cands=[];if(t.date)cands.push(t.date);if(t.do_date)cands.push(t.do_date);
+  (t.sessions||[]).forEach(s=>{if(s.date)cands.push(s.date);});
+  if(!cands.length)return null;
+  return cands.sort()[0];
+}
+// auto-assign Now/Upcoming to dated, un-pinned, not-done tasks. Returns true if anything changed.
+function runAutoStatus(){
+  const today=todayISO();const tomorrow=toISO(new Date(Date.now()+86400000));
+  let changed=false;
+  Object.values(db.tasks).forEach(t=>{
+    if(t.deleted||t.status==="done"||t.status==="pending"||t.pinned)return;
+    const d=soonestDate(t);if(!d)return; // undated tasks keep whatever they are
+    // within 1 day (today or tomorrow, or overdue) => live; else upcoming
+    const want=(d<=tomorrow)?"live":"upcoming";
+    if(t.status!==want){t.status=want;t.updated_at=now();changed=true;}
+  });
+  return changed;
+}
 // move a task's canvas position into the vertical band matching its status
 function snapToBand(t){
   const bands=bandTops(WORLD_H);const b=bands[t.status];if(!b)return;
@@ -1136,9 +1181,9 @@ function snapToBand(t){
   const cy=(t.y||0)+90; // approx card mid
   if(cy<b.top||cy>=b.top+b.h){t.y=Math.round(targetTop);}
 }
-function setStatusSnap(t,s){setStatus(t,s);snapToBand(t);}
+function setStatusSnap(t,s){t.pinned=true;setStatus(t,s);snapToBand(t);}
 function cycle(t){const next=t.status==="upcoming"?"live":t.status==="live"?"done":"upcoming";
-  setStatus(t,next);
+  t.pinned=true;setStatus(t,next);
   touchTask(t);}
 
 /* project detail + banded canvas */
@@ -1172,7 +1217,7 @@ function renderDetail(){
   wrap.appendChild(sub);
   const tools=document.createElement("div");tools.className="canvas-tools";
   const addBtn=document.createElement("button");addBtn.textContent="+ add card";
-  addBtn.addEventListener("click",()=>{const id=newTask(p.id,"live",null,180,40);openTask(id);});
+  addBtn.addEventListener("click",()=>{const id=newTask(p.id,"live",null,180);openTask(id);});
   const arrowBtn=document.createElement("button");arrowBtn.id="arrowBtn";
   arrowBtn.textContent=arrowFrom?"click target card…":"draw arrow";
   if(arrowFrom)arrowBtn.style.borderColor="var(--live)",arrowBtn.style.color="var(--live)";
@@ -1336,6 +1381,9 @@ function bundleEl(b,p){
     document.addEventListener("mousemove",mv);document.addEventListener("mouseup",up);
     document.addEventListener("touchmove",mv,{passive:false});document.addEventListener("touchend",up);};
   c.addEventListener("mousedown",down);c.addEventListener("touchstart",down,{passive:false});
+  c.addEventListener("mousedown",e=>{if(arrowFrom){handleArrowClick(p.id,b.id,e);}},true);
+  if(arrowFrom&&arrowFrom!=="_arm"&&arrowFrom!==b.id)c.classList.add("arrowtarget");
+  if(arrowFrom===b.id)c.classList.add("arrowsource");
   return c;
 }
 function noteEl(n,p){
@@ -1554,7 +1602,7 @@ function enableDrag(c,t,p){
         const cardMid=(t._ny??oy)+c.offsetHeight/(2*z);
         const newStatus=statusForY(cardMid,WORLD_H);
         t.x=Math.round(t._nx);t.y=Math.round(t._ny);delete t._nx;delete t._ny;
-        if(newStatus!==t.status){setStatus(t,newStatus);}
+        if(newStatus!==t.status){t.pinned=true;setStatus(t,newStatus);}
         touchTask(t);
       } else {openTask(t.id);}};
     document.addEventListener("mousemove",move);document.addEventListener("mouseup",up);
@@ -1634,7 +1682,7 @@ function openTask(id){editingTaskId=id;const t=taskById(id);if(!t)return;
         <button class="sessdel" title="remove">×</button>`;
       row.querySelectorAll("input").forEach(inp=>inp.addEventListener("change",()=>{
         s[inp.dataset.k]=inp.value;touchTaskQuiet(t);}));
-      row.querySelector(".sessdel").addEventListener("click",()=>{t.sessions.splice(i,1);touchTaskQuiet(t);paintSessions();});
+      row.querySelector(".sessdel").addEventListener("click",()=>{t.sessions.splice(i,1);touchTask(t);paintSessions();});
       wrap.appendChild(row);});
   }
   paintSessions();
@@ -1873,6 +1921,26 @@ function renderDay(){
   wrap.appendChild(dayAdder(iso));
   app.replaceChildren(wrap);
 }
+function packOverlaps(blocks){
+  // sort by start, then end
+  const arr=blocks.slice().sort((a,b)=>a.sm-b.sm||a.em-b.em);
+  // group into clusters of transitively-overlapping blocks
+  let i=0;
+  while(i<arr.length){
+    let clusterEnd=arr[i].em;const cluster=[arr[i]];let j=i+1;
+    while(j<arr.length&&arr[j].sm<clusterEnd){cluster.push(arr[j]);clusterEnd=Math.max(clusterEnd,arr[j].em);j++;}
+    // assign columns within the cluster (greedy: reuse a column whose last block ended)
+    const colEnds=[]; // end time per column
+    cluster.forEach(blk=>{
+      let placed=false;
+      for(let c=0;c<colEnds.length;c++){if(blk.sm>=colEnds[c]){blk.col=c;colEnds[c]=blk.em;placed=true;break;}}
+      if(!placed){blk.col=colEnds.length;colEnds.push(blk.em);}
+    });
+    const cols=colEnds.length;cluster.forEach(blk=>blk.cols=cols);
+    i=j;
+  }
+  return arr;
+}
 function dayGrid(iso,rows,due){
   const timed=rows.filter(r=>r.start);
   const allday=rows.filter(r=>!r.start);
@@ -1897,37 +1965,45 @@ function dayGrid(iso,rows,due){
   if(iso===todayISO()){const d=new Date();const mins=d.getHours()*60+d.getMinutes();
     if(mins>=DAY_START*60&&mins<=DAY_END*60){const nl=document.createElement("div");nl.className="nowline";
       nl.style.top=((mins-DAY_START*60)/60*HOUR_PX)+"px";grid.appendChild(nl);}}
-  // events first (behind tasks), styled distinctly
-  evs.forEach(ev=>{const sm=hm(ev.start),em=hm(ev.end);const top=(sm-DAY_START*60)/60*HOUR_PX;
-    const h=Math.max(22,((em-sm)/60*HOUR_PX));
-    const block=document.createElement("div");block.className="cal-eventblock";
-    block.style.top=Math.max(0,top)+"px";block.style.height=h+"px";
-    const p=ev.project_id&&projById(ev.project_id);if(p)block.style.boxShadow=`inset 4px 0 0 ${p.color}`;
-    block.innerHTML=`<b>${ev.start}–${ev.end}</b> ${esc(ev.title)}${ev.location?` · ${esc(ev.location)}`:""}`;
-    block._click=()=>openEvent(ev.id);
-    enableTimeDrag(block,sm,em-sm,HOUR_PX/60,(newStart)=>{const dur=em-sm;
-      ev.start=minsToTime(newStart);ev.end=minsToTime(newStart+dur);touchEvent(ev);});
-    grid.appendChild(block);});
-  // timed tasks
-  timed.forEach(({t,p,start,end})=>{const mins=hm(start);const top=(mins-DAY_START*60)/60*HOUR_PX;
-    const endM=end?hm(end):0;
-    const hasDur=end&&endM>mins;
-    const h=hasDur?Math.max(22,(endM-mins)/60*HOUR_PX):0;
-    const ev=document.createElement("div");ev.className="event"+(t.status==="done"?" done":"")+(hasDur?" hasdur":"");
-    ev.style.top=Math.max(0,top)+"px";ev.style.borderLeftColor=p.color;ev.style.background=p.color+"1a";
-    if(hasDur)ev.style.height=h+"px";
-    ev.innerHTML=hasDur
-      ?`<b>${start}–${end}</b> ${esc(t.text)}`
-      :`<b>${start}</b> ${esc(t.text)}`;
-    ev.title=p.name;
-    ev._click=()=>openTask(t.id);
-    enableTimeDrag(ev,mins,hasDur?(endM-mins):60,HOUR_PX/60,(newStart)=>{
-      const ns=minsToTime(newStart);
-      const sess=(t.sessions||[]).find(s=>s.date===iso&&s.start===start);
-      if(sess){sess.start=ns;if(hasDur)sess.end=minsToTime(newStart+(endM-mins));}
-      else{t.due_time=ns;if(hasDur)t.do_end=minsToTime(newStart+(endM-mins));}
-      touchTask(t);});
-    grid.appendChild(ev);});
+  // collect all timed blocks (events + task sessions), pack overlaps into side-by-side columns
+  const blocks=[];
+  evs.forEach(ev=>{const sm=hm(ev.start),em=Math.max(hm(ev.end),sm+15);
+    blocks.push({kind:"event",sm,em,ev});});
+  timed.forEach(({t,p,start,end})=>{const sm=hm(start);const em=end&&hm(end)>sm?hm(end):sm+30;
+    blocks.push({kind:"task",sm,em,t,p,start,end,hasDur:!!(end&&hm(end)>sm)});});
+  const packed=packOverlaps(blocks);
+  packed.forEach(blk=>{
+    const top=(blk.sm-DAY_START*60)/60*HOUR_PX;
+    const gw=100/blk.cols, left=blk.col*gw;
+    if(blk.kind==="event"){const ev=blk.ev;const h=Math.max(22,(blk.em-blk.sm)/60*HOUR_PX);
+      const block=document.createElement("div");block.className="cal-eventblock";
+      block.style.top=Math.max(0,top)+"px";block.style.height=h+"px";
+      block.style.left="calc(70px + (100% - 80px) * "+(left/100)+")";
+      block.style.width="calc((100% - 80px) * "+(gw/100)+" - 3px)";block.style.right="auto";
+      const p=ev.project_id&&projById(ev.project_id);if(p)block.style.boxShadow=`inset 4px 0 0 ${p.color}`;
+      block.innerHTML=`<b>${ev.start}–${ev.end}</b> ${esc(ev.title)}${ev.location?` · ${esc(ev.location)}`:""}`;
+      block._click=()=>openEvent(ev.id);
+      enableTimeDrag(block,blk.sm,blk.em-blk.sm,HOUR_PX/60,(newStart)=>{const dur=hm(ev.end)-hm(ev.start);
+        ev.start=minsToTime(newStart);ev.end=minsToTime(newStart+dur);touchEvent(ev);});
+      grid.appendChild(block);
+    } else {
+      const {t,p,start,end,hasDur}=blk;const h=hasDur?Math.max(22,(blk.em-blk.sm)/60*HOUR_PX):0;
+      const ev=document.createElement("div");ev.className="event"+(t.status==="done"?" done":"")+(hasDur?" hasdur":"");
+      ev.style.top=Math.max(0,top)+"px";ev.style.borderLeftColor=p.color;ev.style.background=p.color+"1a";
+      ev.style.left="calc(70px + (100% - 80px) * "+(left/100)+")";
+      ev.style.width="calc((100% - 80px) * "+(gw/100)+" - 3px)";ev.style.right="auto";
+      if(hasDur)ev.style.height=h+"px";
+      ev.innerHTML=hasDur?`<b>${start}–${end}</b> ${esc(t.text)}`:`<b>${start}</b> ${esc(t.text)}`;
+      ev.title=p.name;ev._click=()=>openTask(t.id);
+      enableTimeDrag(ev,blk.sm,hasDur?(blk.em-blk.sm):60,HOUR_PX/60,(newStart)=>{
+        const ns=minsToTime(newStart);
+        const sess=(t.sessions||[]).find(s=>s.date===iso&&s.start===start);
+        if(sess){sess.start=ns;if(hasDur)sess.end=minsToTime(newStart+(hm(end)-hm(start)));}
+        else{t.due_time=ns;if(hasDur)t.do_end=minsToTime(newStart+(hm(end)-hm(start)));}
+        touchTask(t);});
+      grid.appendChild(ev);
+    }
+  });
   cal.appendChild(grid);
   return cal;
 }
@@ -2103,7 +2179,7 @@ window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredPro
   b.onclick=async()=>{b.style.display="none";deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;};});
 function buildManifest(){try{
   const icon='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="36" fill="#23201b"/><rect x="56" y="40" width="80" height="28" rx="8" fill="#9aae9a"/><rect x="56" y="82" width="80" height="28" rx="8" fill="#d98a2b"/><rect x="56" y="124" width="80" height="28" rx="8" fill="#b7ab93"/></svg>');
-  const m={name:"Chronicle",short_name:"Chronicle",start_url:location.href,display:"standalone",background_color:"#f3efe6",theme_color:"#23201b",icons:[{src:icon,sizes:"192x192",type:"image/svg+xml",purpose:"any"}]};
+  const m={name:"Meridian",short_name:"Meridian",start_url:location.href,display:"standalone",background_color:"#f3efe6",theme_color:"#23201b",icons:[{src:icon,sizes:"192x192",type:"image/svg+xml",purpose:"any"}]};
   const url=URL.createObjectURL(new Blob([JSON.stringify(m)],{type:"application/manifest+json"}));
   document.getElementById("manifestLink").setAttribute("href",url);
 }catch(e){}}
@@ -2157,7 +2233,7 @@ function openNotifSettings(){
       }
       if(!("serviceWorker"in navigator)){alert("No service worker support.");return;}
       const reg=await navigator.serviceWorker.ready;
-      await reg.showNotification("Chronicle Lite",{
+      await reg.showNotification("Meridian",{
         body:"Test notification — this is how reminders will look.",
         tag:"chronicle-test",
         requireInteraction:false
@@ -2210,12 +2286,15 @@ function addLogoutButton(){
 /* ===== BOOT ===== */
 function runApp(){
   applyTheme();
+  if(runAutoStatus())persist();
   try{render();}catch(e){const b=document.getElementById("cfgBanner");b.style.display="block";
     b.textContent="Startup error: "+e.message;console.error(e);}
   setSync(navigator.onLine?"syncing":"offline",navigator.onLine?"syncing":"offline · saved locally");
   buildManifest();registerSW();addLogoutButton();
   if(navigator.onLine)syncNow();
   setInterval(()=>{if(USER_ID&&navigator.onLine&&syncState!=="syncing"&&!dragging&&!editingTaskId)syncNow();},30000);
+  // re-check auto-status hourly (catches day rollover so "tomorrow" becomes "today")
+  setInterval(()=>{if(!dragging&&!editingTaskId&&runAutoStatus()){persist();render();}},3600000);
 }
 async function boot(){
   applyTheme(); // theme before any paint

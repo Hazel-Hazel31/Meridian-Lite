@@ -1,13 +1,13 @@
-const C = "chronicle-v24";
+const C = "meridian-v27";
 
 self.addEventListener("install", e => self.skipWaiting());
 self.addEventListener("activate", e => self.clients.claim());
 
 self.addEventListener("push", e => {
-  let data = { title: "Chronicle Lite", body: "Reminder" };
+  let data = { title: "Meridian", body: "Reminder" };
   try { if (e.data) data = e.data.json(); } catch (_) { if (e.data) data.body = e.data.text(); }
   e.waitUntil(self.registration.showNotification(
-    data.title || "Chronicle Lite",
+    data.title || "Meridian",
     { body: data.body || "", tag: data.tag || "chronicle", data: data }
   ));
 });
