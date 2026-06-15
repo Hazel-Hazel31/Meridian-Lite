@@ -431,6 +431,10 @@
   .repeat-card h3{margin:0 0 12px;font-size:15px;}
   .wdays{display:flex;gap:5px;flex-wrap:wrap;}
   .wdays label{display:flex;flex-direction:column;align-items:center;font-size:11px;font-family:var(--mono);gap:2px;cursor:pointer;}
+  .totem.dragging{opacity:0.5;}
+  .totem.reorder-over{outline:2px dashed var(--live,#5a8c8c);outline-offset:2px;}
+  .totem[draggable="true"]{cursor:grab;}
+  .totem[draggable="true"]:active{cursor:grabbing;}
   .impseg{display:flex;gap:6px;}
   .impseg button{flex:1;font-family:var(--mono);font-size:11px;border:1px solid var(--hair);background:var(--card);
     border-radius:8px;padding:8px;cursor:pointer;color:var(--graphite);}
@@ -581,7 +585,9 @@ function maybeSeedExample(){
 }
 function persist(){try{localStorage.setItem(LKEY,JSON.stringify(db));}catch(e){}}
 
-const liveProjects=()=>Object.values(db.projects).filter(p=>!p.deleted).sort((a,b)=>(a.created||a.updated_at)-(b.created||b.updated_at));
+const liveProjects=()=>Object.values(db.projects).filter(p=>!p.deleted).sort((a,b)=>{
+  const ao=(a.order==null?(a.created||a.updated_at||0):a.order),bo=(b.order==null?(b.created||b.updated_at||0):b.order);
+  return ao-bo;});
 const tasksOf=pid=>Object.values(db.tasks).filter(t=>!t.deleted&&t.project_id===pid);
 const projById=id=>db.projects[id];
 const taskById=id=>db.tasks[id];
@@ -716,7 +722,17 @@ async function uploadFile(file){
 
 function touchProject(p){p.updated_at=now();persist();render();pushSoon();}
 function touchTask(t){t.updated_at=now();persist();render();pushSoon();}
-function newProject(){const id=uid();db.projects[id]={id,name:"New project",
+function reorderProject(dragId,targetId){
+  const list=liveProjects();
+  const from=list.findIndex(p=>p.id===dragId),to=list.findIndex(p=>p.id===targetId);
+  if(from<0||to<0||from===to)return;
+  const[m]=list.splice(from,1);list.splice(to,0,m);
+  // renumber sequentially and stamp updated_at so it syncs
+  list.forEach((p,i)=>{p.order=i;p.updated_at=now();});
+  persist();render();pushSoon();
+}
+function newProject(){const id=uid();const maxO=Math.max(0,...liveProjects().map(p=>p.order==null?0:p.order));
+  db.projects[id]={id,name:"New project",order:maxO+1,
   color:PALETTE[liveProjects().length%PALETTE.length],created:now(),updated_at:now(),deleted:false};
   persist();render();pushSoon();return id;}
 function delProject(p){p.deleted=true;p.updated_at=now();tasksOf(p.id).forEach(t=>{t.deleted=true;t.updated_at=now();});
@@ -748,6 +764,7 @@ async function syncNow(){
     setSync("syncing","syncing");
     const U=USER_ID;
     const pRows=Object.values(db.projects).map(p=>({id:p.id,user_id:U,name:p.name??"",color:p.color??"#888",
+      order:p.order==null?null:p.order,
       created:p.created??p.updated_at??now(),updated_at:p.updated_at??now(),deleted:!!p.deleted}));
     const tRows=Object.values(db.tasks).map(t=>({id:t.id,user_id:U,project_id:t.project_id??null,text:t.text??"",
       status:t.status??"upcoming",date:t.date??null,do_date:t.do_date??null,do_end:t.do_end??"",sessions:JSON.stringify(t.sessions||[]),category:t.category??"",location:t.location??"",
@@ -837,7 +854,12 @@ function renderProjects(){
     const pend=tasks.filter(t=>t.status==="pending");
     const counted=tasks.filter(t=>t.status!=="pending");
     const pct=counted.length?Math.round(done.length/counted.length*100):0;
-    const el=document.createElement("div");el.className="totem";el.dataset.pid=p.id;
+    const el=document.createElement("div");el.className="totem";el.dataset.pid=p.id;el.draggable=true;
+    el.addEventListener("dragstart",e=>{
+      // don't hijack drags that begin on inner controls (buttons, inputs, task cards)
+      if(e.target.closest("button,input,select,textarea,.card,.stack")){e.preventDefault();return;}
+      e.dataTransfer.setData("text/proj",p.id);e.dataTransfer.effectAllowed="move";el.classList.add("dragging");});
+    el.addEventListener("dragend",()=>el.classList.remove("dragging"));
     el.innerHTML=`<div class="totem-head"><span class="swatch" style="background:${p.color}"></span>
       <button class="open-proj" title="Open canvas">⤢</button>
       <button class="delproj" title="Delete">&times;</button>
@@ -849,10 +871,14 @@ function renderProjects(){
     el.querySelector("h3").addEventListener("click",()=>openProject(p.id));
     el.querySelector(".open-proj").addEventListener("click",()=>openProject(p.id));
     el.querySelector(".delproj").addEventListener("click",()=>{if(confirm(`Delete "${p.name}" and its tasks?`))delProject(p);});
-    // drop target: drag a loose task onto a project to assign it
-    el.addEventListener("dragover",e=>{e.preventDefault();el.classList.add("droptarget");});
-    el.addEventListener("dragleave",()=>el.classList.remove("droptarget"));
-    el.addEventListener("drop",e=>{e.preventDefault();el.classList.remove("droptarget");
+    // drop target: a loose task → assign it; OR another project card → reorder
+    el.addEventListener("dragover",e=>{e.preventDefault();
+      const isProj=e.dataTransfer.types.includes("text/proj");
+      el.classList.add(isProj?"reorder-over":"droptarget");});
+    el.addEventListener("dragleave",()=>{el.classList.remove("droptarget");el.classList.remove("reorder-over");});
+    el.addEventListener("drop",e=>{e.preventDefault();el.classList.remove("droptarget");el.classList.remove("reorder-over");
+      const pid=e.dataTransfer.getData("text/proj");
+      if(pid&&db.projects[pid]&&pid!==p.id){reorderProject(pid,p.id);return;}
       const tid=e.dataTransfer.getData("text/task");if(tid&&db.tasks[tid]){db.tasks[tid].project_id=p.id;db.tasks[tid].status="pending";touchTask(db.tasks[tid]);}});
     const stack=el.querySelector(".stack");
     zone(stack,"Done",done,"done",true);zone(stack,"Now",live,"live",done.length===0);zone(stack,"Upcoming",up,"upcoming",false);

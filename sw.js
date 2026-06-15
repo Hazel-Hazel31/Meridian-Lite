@@ -1,4 +1,4 @@
-const C = "chronicle-v19";
+const C = "chronicle-v20";
 
 self.addEventListener("install", e => self.skipWaiting());
 self.addEventListener("activate", e => self.clients.claim());
