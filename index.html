@@ -412,6 +412,8 @@
   .ua-card .ua-del{border:none;background:none;color:var(--hair);font-size:15px;cursor:pointer;}
   .ua-card .ua-del:hover{color:var(--danger);}
 
+  .ncheck{display:flex;align-items:center;gap:8px;font-size:13px;padding:5px 0;cursor:pointer;}
+  .ncheck input{width:16px;height:16px;}
   .impseg{display:flex;gap:6px;}
   .impseg button{flex:1;font-family:var(--mono);font-size:11px;border:1px solid var(--hair);background:var(--card);
     border-radius:8px;padding:8px;cursor:pointer;color:var(--graphite);}
@@ -445,6 +447,7 @@
   <div class="spacer"></div>
   <div class="sync" id="syncPill"><span class="led"></span><span id="syncText">starting</span></div>
   <button class="iconbtn" id="themeBtn" title="Toggle dark mode">◐</button>
+  <button class="iconbtn" id="notifBtn" title="Notifications">🔔</button>
   <button class="iconbtn" id="resetBtn" title="Wipe all data (local + server)">⟲</button>
   <button class="iconbtn" id="installBtn">Install</button>
 </header>
@@ -499,7 +502,7 @@ function urgencyLabel(t){
   return "in "+days+"d";
 }
 
-function emptyLocal(){return{projects:{},tasks:{},categories:{},arrows:{},events:{},bundles:{},notes:{},view:"projects",cursorDate:todayISO(),openProject:null,calMode:"calendar",catFilter:[],catSort:false,viewports:{},lastPull:0};}
+function emptyLocal(){return{projects:{},tasks:{},categories:{},arrows:{},events:{},bundles:{},notes:{},view:"projects",cursorDate:todayISO(),openProject:null,calMode:"calendar",catFilter:[],catSort:false,viewports:{},notif:{enabled:false,onDo:true,onDue:true,lead:1},lastPull:0};}
 let db=loadLocal();
 function loadLocal(){
   try{
@@ -508,6 +511,7 @@ function loadLocal(){
     const s=JSON.parse(raw);
     s.projects=s.projects||{};s.tasks=s.tasks||{};s.categories=s.categories||{};s.arrows=s.arrows||{};
     s.events=s.events||{};s.bundles=s.bundles||{};s.viewports=s.viewports||{};s.notes=s.notes||{};
+    s.notif=s.notif||{enabled:false,onDo:true,onDue:true,lead:1};
     s.view=s.view||"projects";
     s.cursorDate=s.cursorDate||todayISO();s.lastPull=s.lastPull||0;s.openProject=s.openProject||null;
     s.calMode=s.calMode||"calendar";s.catFilter=s.catFilter||[];s.catSort=s.catSort||false;
@@ -617,6 +621,44 @@ function touchNote(n){n.updated_at=now();persist();render();pushSoon();}
 
 /* Supabase Storage upload → returns public URL */
 const STORAGE_BUCKET="Chronicle Lite";
+
+/* ===== PUSH NOTIFICATIONS ===== */
+const VAPID_PUBLIC="BLICvP7OiphOML8n42cmZuFLZG-PKmJfPCU2jDZWQbDevH0aEZi0Fd4-ZL4H6vfXhHKjwx79pImRDyNdOYHtLYU";
+function urlB64ToUint8(base64){
+  const pad="=".repeat((4-base64.length%4)%4);
+  const b64=(base64+pad).replace(/-/g,"+").replace(/_/g,"/");
+  const raw=atob(b64);const arr=new Uint8Array(raw.length);
+  for(let i=0;i<raw.length;i++)arr[i]=raw.charCodeAt(i);return arr;}
+async function enablePush(){
+  if(!("serviceWorker"in navigator)||!("PushManager"in window)){
+    alert("Push isn't supported in this browser. On iPhone, install the app to your home screen first.");return false;}
+  const perm=await Notification.requestPermission();
+  if(perm!=="granted"){alert("Notification permission was not granted.");return false;}
+  try{
+    const reg=await navigator.serviceWorker.ready;
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub){sub=await reg.pushManager.subscribe({userVisibleOnly:true,
+      applicationServerKey:urlB64ToUint8(VAPID_PUBLIC)});}
+    // store the subscription in Supabase so the server function can send to it
+    const j=sub.toJSON();
+    await fetch(REST+"/push_subscriptions",{method:"POST",
+      headers:{...HEADERS,"Prefer":"resolution=merge-duplicates,return=minimal"},
+      body:JSON.stringify([{endpoint:j.endpoint,p256dh:j.keys.p256dh,auth:j.keys.auth,
+        on_do:db.notif.onDo,on_due:db.notif.onDue,lead_days:db.notif.lead,updated_at:now()}])});
+    db.notif.enabled=true;persist();
+    return true;
+  }catch(e){alert("Couldn't enable push: "+e.message);return false;}
+}
+async function syncPushPrefs(){
+  if(!db.notif.enabled)return;
+  try{const reg=await navigator.serviceWorker.ready;const sub=await reg.pushManager.getSubscription();
+    if(!sub)return;const j=sub.toJSON();
+    await fetch(REST+"/push_subscriptions",{method:"POST",
+      headers:{...HEADERS,"Prefer":"resolution=merge-duplicates,return=minimal"},
+      body:JSON.stringify([{endpoint:j.endpoint,p256dh:j.keys.p256dh,auth:j.keys.auth,
+        on_do:db.notif.onDo,on_due:db.notif.onDue,lead_days:db.notif.lead,updated_at:now()}])});
+  }catch(e){}
+}
 async function uploadFile(file){
   const safe=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
   const path=Date.now()+"_"+Math.random().toString(36).slice(2,7)+"_"+safe;
@@ -1678,9 +1720,20 @@ function buildManifest(){try{
 function registerSW(){try{
   if(!("serviceWorker"in navigator))return;
   if(location.protocol!=="https:"&&location.hostname!=="localhost")return;
-  const sw=`const C="chronicle-v12";
+  const sw=`const C="chronicle-v13";
     self.addEventListener("install",e=>self.skipWaiting());
     self.addEventListener("activate",e=>self.clients.claim());
+    self.addEventListener("push",e=>{
+      let data={title:"Chronicle Lite",body:"Reminder"};
+      try{if(e.data)data=e.data.json();}catch(_){if(e.data)data.body=e.data.text();}
+      e.waitUntil(self.registration.showNotification(data.title||"Chronicle Lite",
+        {body:data.body||"",icon:data.icon||"",badge:data.badge||"",tag:data.tag||"chronicle",data:data}));
+    });
+    self.addEventListener("notificationclick",e=>{e.notification.close();
+      e.waitUntil(self.clients.matchAll({type:"window"}).then(cs=>{
+        for(const c of cs){if("focus"in c)return c.focus();}
+        if(self.clients.openWindow)return self.clients.openWindow("/");}));
+    });
     self.addEventListener("fetch",e=>{
       const u=new URL(e.request.url);
       if(u.hostname.endsWith("supabase.co"))return;
@@ -1705,8 +1758,39 @@ function applyTheme(){const th=localStorage.getItem("chronicle.theme")||"light";
 document.getElementById("themeBtn").addEventListener("click",()=>{
   const cur=document.documentElement.getAttribute("data-theme")==="dark"?"light":"dark";
   localStorage.setItem("chronicle.theme",cur);document.documentElement.setAttribute("data-theme",cur);});
-document.getElementById("resetBtn").addEventListener("click",async()=>{
-  if(!confirm("Wipe ALL data on this device AND the server, and start fresh? This cannot be undone."))return;
+document.getElementById("notifBtn").addEventListener("click",()=>openNotifSettings());
+function openNotifSettings(){
+  drawerBody.innerHTML=`
+    <div class="field"><label>Push notifications</label>
+      <div style="font-size:12px;color:var(--graphite);margin-bottom:8px">Get reminders on your phone for upcoming do-dates and deadlines, even when the app is closed.</div>
+      <button id="n_enable" style="background:var(--ink);color:var(--paper);border-color:var(--ink);width:100%">
+        ${db.notif.enabled?"✓ Notifications enabled":"Enable notifications"}</button></div>
+    <div class="field"><label>Remind me about</label>
+      <label class="ncheck"><input type="checkbox" id="n_do" ${db.notif.onDo?"checked":""}> ▶ Do-dates (when to start work)</label>
+      <label class="ncheck"><input type="checkbox" id="n_due" ${db.notif.onDue?"checked":""}> ⚑ Due-dates (deadlines)</label></div>
+    <div class="field"><label>Lead time</label>
+      <select id="n_lead">
+        <option value="0" ${db.notif.lead===0?"selected":""}>On the day</option>
+        <option value="1" ${db.notif.lead===1?"selected":""}>1 day before</option>
+        <option value="2" ${db.notif.lead===2?"selected":""}>2 days before</option>
+        <option value="3" ${db.notif.lead===3?"selected":""}>3 days before</option>
+        <option value="7" ${db.notif.lead===7?"selected":""}>1 week before</option>
+      </select></div>
+    <div class="field"><button id="n_test" style="width:100%">Send a test notification now</button></div>`;
+  drawerBody.querySelector("#n_enable").addEventListener("click",async()=>{
+    if(db.notif.enabled){db.notif.enabled=false;persist();openNotifSettings();return;}
+    const ok=await enablePush();if(ok)openNotifSettings();});
+  drawerBody.querySelector("#n_do").addEventListener("change",e=>{db.notif.onDo=e.target.checked;persist();syncPushPrefs();});
+  drawerBody.querySelector("#n_due").addEventListener("change",e=>{db.notif.onDue=e.target.checked;persist();syncPushPrefs();});
+  drawerBody.querySelector("#n_lead").addEventListener("change",e=>{db.notif.lead=+e.target.value;persist();syncPushPrefs();});
+  drawerBody.querySelector("#n_test").addEventListener("click",async()=>{
+    if(Notification.permission!=="granted"){alert("Enable notifications first.");return;}
+    const reg=await navigator.serviceWorker.ready;
+    reg.showNotification("Chronicle Lite",{body:"Test notification — this is how reminders will look.",icon:""});});
+  document.querySelector(".drawer header b").textContent="Notifications";
+  drawer.classList.add("open");drawerBack.style.display="block";
+}
+document.getElementById("resetBtn").addEventListener("click",async()=>{  if(!confirm("Wipe ALL data on this device AND the server, and start fresh? This cannot be undone."))return;
   if(!confirm("Really wipe everything? Last chance."))return;
   // hard-delete every row on the server, then clear local
   try{
