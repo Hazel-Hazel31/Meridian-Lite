@@ -134,9 +134,7 @@
   .ccard .cstatus{position:absolute;top:8px;right:8px;width:14px;height:14px;border-radius:4px;border:1.5px solid var(--graphite);cursor:pointer;}
   .ccard.done .cstatus{background:var(--done);border-color:var(--done);}
   .ccard.live .cstatus{border-color:var(--live);}
-  .canvas.zoomed-out .ccard .cmeta,.canvas.zoomed-out .ccard .cstatus,.canvas.zoomed-out .ccard .impdot{display:none;}
-  .canvas.zoomed-out .ccard{width:160px;padding:7px 9px;}
-  .canvas.zoomed-out .ccard .ct{font-size:12px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .canvas.zoomed-out .ccard .cmeta{display:none;}
   .zoomctl{position:absolute;right:12px;bottom:12px;z-index:20;display:flex;align-items:center;gap:6px;
     background:var(--card);border:1px solid var(--hair);border-radius:10px;padding:5px 8px;box-shadow:0 4px 14px -8px var(--shadow);}
   .zoomctl button{font-family:var(--mono);font-size:13px;border:1px solid var(--hair);background:var(--paper);
@@ -450,6 +448,7 @@
   .grp-pick{font-size:10px;border:1px solid var(--hair);border-radius:5px;background:var(--card);color:var(--graphite);max-width:84px;padding:2px;}
   .totem-head .grp-pick{position:absolute;top:8px;right:34px;}
   .prow-grp{font-size:10px;border:1px solid var(--hair);border-radius:5px;background:var(--card);color:var(--graphite);max-width:84px;}
+  .done-hidden{font-size:10.5px;color:var(--graphite);font-style:italic;padding:2px 4px 4px;opacity:.75;}
   .projsearch{display:flex;align-items:center;gap:6px;border:1px solid var(--hair);border-radius:9px;padding:7px 11px;background:var(--card);flex:1;max-width:280px;}
   .projsearch .ps-ic{color:var(--graphite);font-size:14px;}
   .projsearch input{border:none;background:none;outline:none;font-size:13px;width:100%;color:var(--ink);}
@@ -792,8 +791,11 @@ function newProject(){const id=uid();const maxO=Math.max(0,...liveProjects().map
 function delProject(p){p.deleted=true;p.updated_at=now();tasksOf(p.id).forEach(t=>{t.deleted=true;t.updated_at=now();});
   if(db.openProject===p.id){db.openProject=null;db.view="projects";}persist();render();pushSoon();}
 function newTask(pid,status,date,x,y){const id=uid();
-  db.tasks[id]={id,project_id:pid,text:"New task",status:status||"upcoming",date:date||null,do_date:null,do_end:"",sessions:[],
-    category:"",location:"",notes:"",due_time:"",importance:"med",x:x??40,y:y??40,updated_at:now(),deleted:false};
+  const st=status||"upcoming";
+  let ny=y;
+  if(ny==null&&st!=="pending"){const bands=bandTops(WORLD_H);ny=Math.round((bands[st]?.top||0)+40);}
+  db.tasks[id]={id,project_id:pid,text:"New task",status:st,date:date||null,do_date:null,do_end:"",sessions:[],
+    category:"",location:"",notes:"",due_time:"",importance:"med",x:x??40,y:ny??40,updated_at:now(),deleted:false};
   persist();render();pushSoon();return id;}
 function delTask(t){t.deleted=true;t.updated_at=now();persist();render();pushSoon();}
 
@@ -935,11 +937,18 @@ function renderProjects(){
     back.querySelector("#grpRename").addEventListener("click",()=>{const n=prompt("Group name:",g.name);if(n&&n.trim())renameGroup(g,n.trim()),render();});
     back.querySelector("#grpDel").addEventListener("click",()=>{if(confirm(`Delete group "${g.name}"? Projects inside become ungrouped.`))delGroup(g);});
     outer.appendChild(back);
-    const board=document.createElement("div");board.className="board";
-    projectsInGroup(g.id).filter(matches).forEach(p=>board.appendChild(buildProjectCard(p)));
-    const add=document.createElement("div");add.className="totem add";add.textContent="+ new project in group";
-    add.addEventListener("click",()=>{const id=newProject();openProject(id);});board.appendChild(add);
-    outer.appendChild(board);
+    const gprojs=projectsInGroup(g.id).filter(matches);
+    if(db.projView==="list"){
+      const list=document.createElement("div");list.className="projlist";
+      gprojs.forEach(p=>list.appendChild(buildProjectRow(p)));
+      outer.appendChild(list);
+    } else {
+      const board=document.createElement("div");board.className="board";
+      gprojs.forEach(p=>board.appendChild(buildProjectCard(p)));
+      const add=document.createElement("div");add.className="totem add";add.textContent="+ new project in group";
+      add.addEventListener("click",()=>{const id=newProject();openProject(id);});board.appendChild(add);
+      outer.appendChild(board);
+    }
     app.replaceChildren(outer);return;
   }
 
@@ -996,6 +1005,13 @@ function buildProjectCard(p){
   const pend=tasks.filter(t=>t.status==="pending");
   const counted=tasks.filter(t=>t.status!=="pending");
   const pct=counted.length?Math.round(done.length/counted.length*100):0;
+  // dashboard only shows recent done: within 3 days AND at most the 4 most recent
+  const DONE_DAYS=3, DONE_MAX=4, cutoff=Date.now()-DONE_DAYS*86400000;
+  const doneShown=done.slice()
+    .sort((a,b)=>(b.done_at||0)-(a.done_at||0))
+    .filter(t=>(t.done_at||0)>=cutoff)
+    .slice(0,DONE_MAX);
+  const doneHidden=done.length-doneShown.length;
   const el=document.createElement("div");el.className="totem";el.dataset.pid=p.id;el.draggable=true;
   el.addEventListener("dragstart",e=>{
     if(e.target.closest("button,input,select,textarea,.card,.stack")){e.preventDefault();return;}
@@ -1025,7 +1041,10 @@ function buildProjectCard(p){
     if(pid&&db.projects[pid]&&pid!==p.id){reorderProject(pid,p.id);return;}
     const tid=e.dataTransfer.getData("text/task");if(tid&&db.tasks[tid]){db.tasks[tid].project_id=p.id;db.tasks[tid].status="pending";touchTask(db.tasks[tid]);}});
   const stack=el.querySelector(".stack");
-  zone(stack,"Done",done,"done",true);zone(stack,"Now",live,"live",done.length===0);zone(stack,"Upcoming",up,"upcoming",false);
+  zone(stack,"Done",doneShown,"done",true);
+  if(doneHidden>0){const note=document.createElement("div");note.className="done-hidden";
+    note.textContent=`+${doneHidden} older done hidden`;stack.appendChild(note);}
+  zone(stack,"Now",live,"live",doneShown.length===0);zone(stack,"Upcoming",up,"upcoming",false);
   const qa=document.createElement("input");qa.className="quickadd";qa.placeholder="+ quick add task";
   qa.addEventListener("keydown",e=>{if(e.key==="Enter"&&qa.value.trim()){
     const id=newTask(p.id,"upcoming",null);db.tasks[id].text=qa.value.trim();touchTask(db.tasks[id]);qa.value="";}});
@@ -1108,9 +1127,19 @@ function setStatus(t,s){
   if(s==="done"&&!wasDone)t.done_at=now();
   if(s!=="done")t.done_at=null;
 }
+// move a task's canvas position into the vertical band matching its status
+function snapToBand(t){
+  const bands=bandTops(WORLD_H);const b=bands[t.status];if(!b)return;
+  // keep x; put y near the top-third of the band so it reads as "in" that band
+  const targetTop=b.top+Math.min(b.h*0.25,80);
+  // only move if it's currently outside its band (don't yank cards already placed)
+  const cy=(t.y||0)+90; // approx card mid
+  if(cy<b.top||cy>=b.top+b.h){t.y=Math.round(targetTop);}
+}
+function setStatusSnap(t,s){setStatus(t,s);snapToBand(t);}
 function cycle(t){const next=t.status==="upcoming"?"live":t.status==="live"?"done":"upcoming";
   setStatus(t,next);
-  if(t.status==="live"&&!t.date)t.date=todayISO();touchTask(t);}
+  touchTask(t);}
 
 /* project detail + banded canvas */
 const BANDS=[{key:"done",label:"DONE",color:"#0F6E56",bg:"rgba(154,174,154,0.06)",frac:0.27},
@@ -1226,7 +1255,7 @@ function renderDetail(){
     it.querySelector(".ic-t").textContent=t.text;
     it.querySelector(".ic-t").addEventListener("click",()=>openTask(t.id));
     it.querySelectorAll(".ic-actions button").forEach(b=>b.addEventListener("click",()=>{
-      setStatus(t,b.dataset.s);if(t.status==="live"&&!t.date)t.date=todayISO();
+      setStatus(t,b.dataset.s);
       const bands=bandTops(WORLD_H);t.y=Math.round(bands[t.status].top+40);t.x=60;touchTask(t);}));
     ibody.appendChild(it);});
   const iadd=document.createElement("input");iadd.className="inbox-add";iadd.placeholder="+ add to inbox";
@@ -1525,7 +1554,7 @@ function enableDrag(c,t,p){
         const cardMid=(t._ny??oy)+c.offsetHeight/(2*z);
         const newStatus=statusForY(cardMid,WORLD_H);
         t.x=Math.round(t._nx);t.y=Math.round(t._ny);delete t._nx;delete t._ny;
-        if(newStatus!==t.status){setStatus(t,newStatus);if(newStatus==="live"&&!t.date)t.date=todayISO();}
+        if(newStatus!==t.status){setStatus(t,newStatus);}
         touchTask(t);
       } else {openTask(t.id);}};
     document.addEventListener("mousemove",move);document.addEventListener("mouseup",up);
@@ -1584,8 +1613,7 @@ function openTask(id){editingTaskId=id;const t=taskById(id);if(!t)return;
 
   const seg=drawerBody.querySelector("#f_status");
   const paint=()=>seg.querySelectorAll("button").forEach(b=>b.classList.toggle("on",b.dataset.s===t.status));paint();
-  seg.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{setStatus(t,b.dataset.s);
-    if(t.status==="live"&&!t.date){t.date=todayISO();const d=drawerBody.querySelector("#f_date");if(d)d.value=t.date;}
+  seg.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{setStatusSnap(t,b.dataset.s);
     paint();touchTaskQuiet(t);}));
   const iseg=drawerBody.querySelector("#f_imp");
   const ipaint=()=>iseg.querySelectorAll("button").forEach(b=>b.classList.toggle("on",b.dataset.i===(t.importance||"med")));ipaint();
