@@ -452,11 +452,19 @@
   .totem-head .grp-pick{position:absolute;top:8px;right:34px;}
   .prow-grp{font-size:10px;border:1px solid var(--hair);border-radius:5px;background:var(--card);color:var(--graphite);max-width:84px;}
   .done-hidden{font-size:10.5px;color:var(--graphite);font-style:italic;padding:2px 4px 4px;opacity:.75;}
-  .pimp{width:10px;height:10px;border-radius:50%;display:inline-block;cursor:pointer;flex:0 0 auto;border:1.5px solid var(--graphite);}
+  .pimp{width:11px;height:11px;border-radius:50%;display:inline-block;cursor:pointer;flex:0 0 auto;border:1.5px solid var(--graphite);vertical-align:middle;margin-right:6px;}
   .pimp-high{background:#c0392b;border-color:#c0392b;}
   .pimp-med{background:#e08a1e;border-color:#e08a1e;}
   .pimp-low{background:transparent;border-color:var(--graphite);}
-  .totem-head .pimp{position:absolute;top:10px;right:58px;}
+  .ccard.overdue{border-color:#c0392b!important;box-shadow:0 0 0 1px #c0392b, 0 2px 8px rgba(192,57,43,0.18);}
+  .task.overdue{background:rgba(192,57,43,0.08);border-radius:6px;}
+  .task.overdue .label::before{content:"⚠ ";color:#c0392b;}
+  .totem.imp-high{border:2px solid #c0392b;}
+  .totem.imp-med{border:2px solid #e08a1e;}
+  .totem.imp-low{border:1px solid var(--hair);}
+  .prow.imp-high{box-shadow:inset 0 0 0 1.5px #c0392b;}
+  .prow.imp-med{box-shadow:inset 0 0 0 1.5px #e08a1e;}
+  .prow.imp-low{box-shadow:none;}
   .projsearch{display:flex;align-items:center;gap:6px;border:1px solid var(--hair);border-radius:9px;padding:7px 11px;background:var(--card);flex:1;max-width:280px;}
   .projsearch .ps-ic{color:var(--graphite);font-size:14px;}
   .projsearch input{border:none;background:none;outline:none;font-size:13px;width:100%;color:var(--ink);}
@@ -906,6 +914,11 @@ function render(){
 }
 
 /* overview */
+function isOverdue(t){
+  if(t.deleted||t.status==="done"||t.status==="pending")return false;
+  if(!t.date)return false;
+  return t.date<todayISO();
+}
 function metaTag(t){const bits=[];if(t.date)bits.push(t.date===todayISO()?"today":fromISO(t.date).toLocaleDateString(undefined,{day:'numeric',month:'short'}));
   if(t.due_time)bits.push(t.due_time);
   if(t.category&&catById(t.category)&&!catById(t.category).deleted)bits.push(catById(t.category).name);
@@ -1029,22 +1042,21 @@ function buildProjectCard(p){
     .filter(t=>(t.done_at||0)>=cutoff)
     .slice(0,DONE_MAX);
   const doneHidden=done.length-doneShown.length;
-  const el=document.createElement("div");el.className="totem";el.dataset.pid=p.id;el.draggable=true;
+  const el=document.createElement("div");el.className="totem imp-"+(p.importance||"med");el.dataset.pid=p.id;el.draggable=true;
   el.addEventListener("dragstart",e=>{
     if(e.target.closest("button,input,select,textarea,.card,.stack")){e.preventDefault();return;}
     e.dataTransfer.setData("text/proj",p.id);e.dataTransfer.effectAllowed="move";el.classList.add("dragging");});
   el.addEventListener("dragend",()=>el.classList.remove("dragging"));
   el.innerHTML=`<div class="totem-head"><span class="swatch" style="background:${p.color}"></span>
-    <span class="pimp pimp-${p.importance||"med"}" title="Importance — click to change"></span>
     <button class="open-proj" title="Open canvas">⤢</button>
     <select class="grp-pick" title="Move to group"></select>
     <button class="delproj" title="Delete">&times;</button>
-    <h3 title="Open canvas"></h3>
+    <h3 title="Open canvas"><span class="pimp pimp-${p.importance||"med"}" title="Importance — click to change"></span><span class="pname"></span></h3>
     <div class="progress"><i style="width:${pct}%;background:${p.color}"></i></div>
     <div class="totem-meta"><span>${done.length}/${counted.length} done</span><span>${pct}%</span>${pend.length?`<span>${pend.length} pending</span>`:""}</div></div>
     <div class="stack"></div>`;
-  el.querySelector("h3").textContent=p.name;
-  el.querySelector("h3").addEventListener("click",()=>openProject(p.id));
+  el.querySelector(".pname").textContent=p.name;
+  el.querySelector(".pname").addEventListener("click",()=>openProject(p.id));
   el.querySelector(".open-proj").addEventListener("click",()=>openProject(p.id));
   el.querySelector(".pimp").addEventListener("click",e=>{e.stopPropagation();
     const order=["low","med","high"];p.importance=order[(order.indexOf(p.importance||"med")+1)%3];p.updated_at=now();persist();render();pushSoon();});
@@ -1099,7 +1111,7 @@ function buildProjectRow(p){
   const live=tasks.filter(t=>t.status==="live");const up=tasks.filter(t=>t.status==="upcoming");
   const counted=tasks.filter(t=>t.status!=="pending");
   const pct=counted.length?Math.round(done.length/counted.length*100):0;
-  const row=document.createElement("div");row.className="prow";row.dataset.pid=p.id;row.draggable=true;
+  const row=document.createElement("div");row.className="prow imp-"+(p.importance||"med");row.dataset.pid=p.id;row.draggable=true;
   row.style.borderLeftColor=p.color;
   row.innerHTML=`<span class="prow-grip">⠿</span>
     <span class="pimp pimp-${p.importance||"med"}" title="Importance — click to change"></span>
@@ -1132,7 +1144,7 @@ function zone(stack,label,tasks,status,first){
   const lab=document.createElement("div");lab.className="zone-label zl-"+status+(first?" first":"");lab.textContent=label;stack.appendChild(lab);
   if(!tasks.length){const ph=document.createElement("div");ph.className="task "+status;ph.style.opacity=".5";
     ph.style.fontStyle="italic";ph.style.cursor="default";ph.innerHTML=`<span class="label" style="font-size:12.5px">—</span>`;stack.appendChild(ph);return;}
-  tasks.forEach(t=>{const row=document.createElement("div");row.className="task "+status;row.style.position="relative";
+  tasks.forEach(t=>{const row=document.createElement("div");row.className="task "+status+(isOverdue(t)?" overdue":"");row.style.position="relative";
     const m=metaTag(t);
     const u=urgencyOf(t);const edge=URG_COLOR[u]&&u!=="calm"?`<span class="urg-edge" style="background:${URG_COLOR[u]}"></span>`:"";
     const imp=t.importance||"med";
@@ -1161,13 +1173,13 @@ function soonestDate(t){
 }
 // auto-assign Now/Upcoming to dated, un-pinned, not-done tasks. Returns true if anything changed.
 function runAutoStatus(){
-  const today=todayISO();const tomorrow=toISO(new Date(Date.now()+86400000));
+  const today=todayISO();
   let changed=false;
   Object.values(db.tasks).forEach(t=>{
     if(t.deleted||t.status==="done"||t.status==="pending"||t.pinned)return;
     const d=soonestDate(t);if(!d)return; // undated tasks keep whatever they are
-    // within 1 day (today or tomorrow, or overdue) => live; else upcoming
-    const want=(d<=tomorrow)?"live":"upcoming";
+    // due today or overdue => Now; future => Upcoming
+    const want=(d<=today)?"live":"upcoming";
     if(t.status!==want){t.status=want;t.updated_at=now();changed=true;}
   });
   return changed;
@@ -1533,11 +1545,12 @@ function edgePoint(c,t,hw,hh){
 }
 
 function cardEl(t,p){
-  const c=document.createElement("div");c.className="ccard "+t.status;c.id="card_"+t.id;
+  const c=document.createElement("div");c.className="ccard "+t.status+(isOverdue(t)?" overdue":"");c.id="card_"+t.id;
   c.style.left=(t.x??40)+"px";c.style.top=(t.y??40)+"px";
   if(arrowFrom&&arrowFrom!=="_arm"&&arrowFrom!==t.id)c.classList.add("arrowtarget");
   if(arrowFrom===t.id)c.classList.add("arrowsource");
   const chips=[];
+  if(isOverdue(t))chips.push({t:"OVERDUE",c:"#c0392b"});
   if(t.date){const u=urgencyOf(t);chips.push({t:urgencyLabel(t),c:URG_COLOR[u]==="#e3e6ea"?null:URG_COLOR[u]});}
   if(t.due_time)chips.push({t:t.due_time});
   if(t.category&&catById(t.category)&&!catById(t.category).deleted){const cat=catById(t.category);
