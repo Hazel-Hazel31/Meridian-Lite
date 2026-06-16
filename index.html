@@ -459,6 +459,7 @@
   .ccard.overdue{border-color:#c0392b!important;box-shadow:0 0 0 1px #c0392b, 0 2px 8px rgba(192,57,43,0.18);}
   .task.overdue{background:rgba(192,57,43,0.08);border-radius:6px;}
   .task.overdue .label::before{content:"⚠ ";color:#c0392b;}
+  .cal-eventblock.past,.wtask.wevt.past,.mc-item.mc-evt.past{opacity:0.45;filter:grayscale(0.6);}
   .totem.imp-high{border:2px solid #c0392b;}
   .totem.imp-med{border:2px solid #e08a1e;}
   .totem.imp-low{border:1px solid var(--hair);}
@@ -914,8 +915,15 @@ function render(){
 }
 
 /* overview */
-function isOverdue(t){
-  if(t.deleted||t.status==="done"||t.status==="pending")return false;
+function isPastEvent(ev){
+  if(!ev||!ev.date)return false;
+  const today=todayISO();
+  if(ev.date<today)return true;
+  if(ev.date===today&&ev.end){const nowM=new Date().getHours()*60+new Date().getMinutes();
+    if(hm(ev.end)<nowM)return true;}
+  return false;
+}
+function isOverdue(t){  if(t.deleted||t.status==="done"||t.status==="pending")return false;
   if(!t.date)return false;
   return t.date<todayISO();
 }
@@ -1031,7 +1039,18 @@ function renderProjects(){
 }
 function buildProjectCard(p){
   const tasks=tasksOf(p.id);const done=tasks.filter(t=>t.status==="done");
-  const live=tasks.filter(t=>t.status==="live");const up=tasks.filter(t=>t.status==="upcoming");
+  const live=tasks.filter(t=>t.status==="live").sort((a,b)=>{
+    const ad=soonestDate(a),bd=soonestDate(b);
+    if(ad&&bd)return ad.localeCompare(bd);
+    if(ad&&!bd)return -1;
+    if(!ad&&bd)return 1;
+    return 0;});
+  const up=tasks.filter(t=>t.status==="upcoming").sort((a,b)=>{
+    const ad=soonestDate(a),bd=soonestDate(b);
+    if(ad&&bd)return ad.localeCompare(bd);
+    if(ad&&!bd)return -1;
+    if(!ad&&bd)return 1;
+    return 0;});
   const pend=tasks.filter(t=>t.status==="pending");
   const counted=tasks.filter(t=>t.status!=="pending");
   const pct=counted.length?Math.round(done.length/counted.length*100):0;
@@ -1989,7 +2008,7 @@ function dayGrid(iso,rows,due){
     const top=(blk.sm-DAY_START*60)/60*HOUR_PX;
     const gw=100/blk.cols, left=blk.col*gw;
     if(blk.kind==="event"){const ev=blk.ev;const h=Math.max(22,(blk.em-blk.sm)/60*HOUR_PX);
-      const block=document.createElement("div");block.className="cal-eventblock";
+      const block=document.createElement("div");block.className="cal-eventblock"+(isPastEvent(ev)?" past":"");
       block.style.top=Math.max(0,top)+"px";block.style.height=h+"px";
       block.style.left="calc(70px + (100% - 80px) * "+(left/100)+")";
       block.style.width="calc((100% - 80px) * "+(gw/100)+" - 3px)";block.style.right="auto";
@@ -2069,7 +2088,7 @@ function renderWeek(){
         due.forEach(({t,p})=>{const tt=document.createElement("div");tt.className="wtask duemark"+(t.status==="done"?" done":"");
           tt.innerHTML=tag(p)+`<span>${esc(t.text)}</span>`;
           tt.addEventListener("click",()=>openTask(t.id));col.appendChild(tt);});}
-      eventsForDate(iso).forEach(ev=>{const tt=document.createElement("div");tt.className="wtask wevt";
+      eventsForDate(iso).forEach(ev=>{const tt=document.createElement("div");tt.className="wtask wevt"+(isPastEvent(ev)?" past":"");
         tt.textContent=ev.start+" "+ev.title;tt.addEventListener("click",()=>openEvent(ev.id));col.appendChild(tt);});
       grid.appendChild(col);}
     wrap.appendChild(grid);
@@ -2161,7 +2180,7 @@ function renderMonth(){
     const evs=eventsForDate(iso);
     const doing=applyCatControls(doingForDate(iso));
     const due=applyCatControls(dueForDate(iso));
-    evs.slice(0,1).forEach(ev=>{const e=document.createElement("div");e.className="mc-item mc-evt";
+    evs.slice(0,1).forEach(ev=>{const e=document.createElement("div");e.className="mc-item mc-evt"+(isPastEvent(ev)?" past":"");
       e.textContent=ev.start+" "+ev.title;e.addEventListener("click",()=>openEvent(ev.id));cell.appendChild(e);});
     const projTag=(p)=>`<span class="mc-proj"><span class="mc-dot" style="background:${p.color}"></span>${esc(p.name)}</span>`;
     if(doing.length){const lab=document.createElement("div");lab.className="mc-zone doing";lab.textContent="▶ DOING";cell.appendChild(lab);
