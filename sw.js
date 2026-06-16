@@ -1,4 +1,4 @@
-const C = "meridian-v33";
+const C = "meridian-v35";
 
 self.addEventListener("install", e => self.skipWaiting());
 self.addEventListener("activate", e => {

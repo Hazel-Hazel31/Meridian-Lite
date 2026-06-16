@@ -603,8 +603,18 @@ function loadLocal(){
     s.projects=s.projects||{};s.tasks=s.tasks||{};s.categories=s.categories||{};s.arrows=s.arrows||{};
     s.events=s.events||{};s.bundles=s.bundles||{};s.viewports=s.viewports||{};s.notes=s.notes||{};
     s.groups=s.groups||{};s.collapsedGroups=s.collapsedGroups||{};s.openGroup=s.openGroup||null;
-    // clean up any sessions with blank/invalid dates (lingering canceled sessions)
-    Object.values(s.tasks||{}).forEach(t=>{if(Array.isArray(t.sessions))t.sessions=t.sessions.filter(se=>se&&typeof se.date==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(se.date));});
+    // cleanup: deleted tasks keep no sessions; drop blank/invalid-date sessions (lingering canceled sessions)
+    Object.values(s.tasks||{}).forEach(t=>{
+      if(t.deleted){t.sessions=[];t.do_date=null;return;}
+      if(Array.isArray(t.sessions))t.sessions=t.sessions.filter(se=>se&&typeof se.date==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(se.date));
+      else t.sessions=[];
+      // migrate legacy do_date into a real session (so it's editable/deletable), then clear the legacy fields
+      if(typeof t.do_date==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(t.do_date)){
+        const already=t.sessions.some(se=>se.date===t.do_date);
+        if(!already)t.sessions.push({date:t.do_date,start:t.due_time||"",end:t.do_end||""});
+        t.do_date=null;t.do_end="";
+      }
+    });
     s.notif=s.notif||{enabled:false,onDo:true,onDue:true,lead:1};
     if(s.projView==null)s.projView="cards";
     if(s.projSearch==null)s.projSearch="";
@@ -1848,13 +1858,13 @@ function openEvent(id){editingEventId=id;editingTaskId=null;const e=eventById(id
   drawer.classList.add("open");drawerBack.style.display="block";
 }
 function tasksForDate(iso){const out=[];liveProjects().forEach(p=>tasksOf(p.id).forEach(t=>{
-  if(t.status==="pending")return;
-  const hasSession=(t.sessions||[]).some(s=>s.date===iso);
+  if(t.deleted||t.status==="pending")return;
+  const hasSession=(t.sessions||[]).some(s=>validDate(s.date)&&s.date===iso);
   if(hasSession||t.do_date===iso||t.date===iso)out.push({t,p});}));
   return out.sort((a,b)=>(a.t.due_time||"99").localeCompare(b.t.due_time||"99"));}
 // returns entries {t,p,start,end} — one per session on that date (plus legacy do_date)
 function doingForDate(iso){const out=[];liveProjects().forEach(p=>tasksOf(p.id).forEach(t=>{
-  if(t.status==="pending")return;
+  if(t.deleted||t.status==="pending")return;
   (t.sessions||[]).forEach(s=>{if(validDate(s.date)&&s.date===iso)out.push({t,p,start:s.start||"",end:s.end||""});});
   // legacy single do_date (only if no sessions cover it)
   if(validDate(t.do_date)&&t.do_date===iso&&!(t.sessions||[]).some(s=>s.date===iso))
